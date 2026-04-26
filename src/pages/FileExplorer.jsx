@@ -1,12 +1,12 @@
 import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { HardDrive, Upload, FolderTree, Database, Search, RefreshCw } from 'lucide-react';
+import { HardDrive, Upload, FolderTree, Database, Search, RefreshCw, ShieldCheck } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import TreeView from '../components/ui/TreeView';
 import SearchInput from '../components/ui/SearchInput';
 import { useCluster } from '../context/ClusterContext';
 
-function FileDetailPanel({ file }) {
+function FileDetailPanel({ file, placement, onInjectFault, onRecoverNode }) {
   if (!file) {
     return (
       <div className="panel p-6 flex flex-col items-center justify-center gap-3" style={{ minHeight: '300px' }}>
@@ -80,6 +80,47 @@ function FileDetailPanel({ file }) {
           ))}
         </div>
       </div>
+
+      {placement && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[10px] font-display tracking-wider uppercase" style={{ color: 'var(--color-text-muted)' }}>
+              Replica Placement (Data + Parity)
+            </div>
+            <div className="text-[10px] font-mono" style={{ color: 'var(--color-text-subtle)' }}>
+              {placement.dataShards} data + {placement.parityShards} parity
+            </div>
+          </div>
+          <div className="flex flex-col gap-2 max-h-[260px] overflow-auto pr-1">
+            {placement.shards.map((shard) => (
+              <div key={shard.shardId} className="panel-soft p-2.5">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-display tracking-wider uppercase" style={{ color: shard.kind === 'parity' ? 'var(--color-warning)' : 'var(--color-cyan-neon)' }}>
+                    {shard.shardId} - {shard.kind}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {shard.replicas.map((replica, idx) => (
+                    <button
+                      key={`${shard.shardId}-${replica.nodeId}-${idx}`}
+                      className="px-2 py-1 rounded text-[10px] font-mono border"
+                      style={{
+                        borderColor: replica.status === 'degraded' ? 'rgba(255,107,107,0.5)' : 'rgba(17,232,246,0.22)',
+                        backgroundColor: replica.status === 'degraded' ? 'rgba(255,107,107,0.1)' : 'rgba(17,232,246,0.07)',
+                        color: replica.status === 'degraded' ? 'var(--color-error-hot)' : 'var(--color-text-primary)',
+                      }}
+                      onClick={() => (replica.status === 'degraded' ? onRecoverNode(replica.nodeId) : onInjectFault(replica.nodeId))}
+                      title={replica.status === 'degraded' ? 'Recover this node' : 'Inject fault on this node'}
+                    >
+                      {replica.nodeId.replace('AE-NODE-', '')} ({replica.status})
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }
@@ -167,20 +208,69 @@ function UploadSimulation({ uploads }) {
   );
 }
 
+function SimulationFeed({ events }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.4, duration: 0.45 }}
+      className="panel p-5"
+    >
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="panel-title">Simulation Event Stream</h3>
+        <ShieldCheck size={14} style={{ color: 'var(--color-teal-neon)' }} />
+      </div>
+      <div className="flex flex-col gap-2 max-h-[220px] overflow-auto">
+        {events.length === 0 && (
+          <div className="panel-soft p-3 text-xs font-mono" style={{ color: 'var(--color-text-muted)' }}>
+            Upload a file or inject a fault to start simulation events.
+          </div>
+        )}
+        {events.map((event) => (
+          <div key={event.id} className="panel-soft p-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-display tracking-wider uppercase" style={{ color: event.level === 'FAULT' ? 'var(--color-error-hot)' : event.level === 'HEAL' ? 'var(--color-teal-neon)' : 'var(--color-cyan-neon)' }}>
+                {event.level}
+              </span>
+              <span className="text-[9px] font-mono" style={{ color: 'var(--color-text-subtle)' }}>{event.time}</span>
+            </div>
+            <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>{event.message}</p>
+          </div>
+        ))}
+      </div>
+    </motion.div>
+  );
+}
+
 export default function FileExplorer() {
   const {
     fileTree,
+    files,
     fileActivity,
     storageByRegion,
     systemMetrics,
     activeTransfers,
+    shardPlacements,
+    simulationFeed,
     uploadFile,
+    injectFault,
+    recoverNode,
     config,
   } = useCluster();
   const [selectedFile, setSelectedFile] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [uploadName, setUploadName] = useState('project_checkpoint.bin');
   const [uploadSize, setUploadSize] = useState(256);
+
+  const selectedFileLive = useMemo(() => {
+    if (!selectedFile) return null;
+    return files.find((f) => f.name === selectedFile.name) || selectedFile;
+  }, [files, selectedFile]);
+
+  const selectedPlacement = useMemo(() => {
+    if (!selectedFileLive) return null;
+    return shardPlacements[selectedFileLive.name] || null;
+  }, [selectedFileLive, shardPlacements]);
 
   const stats = useMemo(() => [
     { icon: Database, label: 'Total Storage', value: systemMetrics.totalStorage, color: 'var(--color-cyan-primary)' },
@@ -319,9 +409,15 @@ export default function FileExplorer() {
 
           {/* Right: Detail panel + Charts */}
           <div className="flex flex-col gap-5">
-            <FileDetailPanel file={selectedFile} />
+            <FileDetailPanel
+              file={selectedFileLive}
+              placement={selectedPlacement}
+              onInjectFault={injectFault}
+              onRecoverNode={recoverNode}
+            />
             <UploadSimulation uploads={activeTransfers} />
             <StorageChart storageByRegion={storageByRegion} />
+            <SimulationFeed events={simulationFeed} />
           </div>
         </div>
       </div>

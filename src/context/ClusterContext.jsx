@@ -102,6 +102,105 @@ function addFileToUploadsFolder(tree, file) {
   return nextTree;
 }
 
+function updateFileInTree(tree, fileName, updateFn) {
+  const nextTree = deepClone(tree);
+
+  function walk(nodes) {
+    for (const node of nodes) {
+      if (node.type === 'file' && node.name === fileName) {
+        updateFn(node);
+        return true;
+      }
+      if (node.type === 'folder' && Array.isArray(node.children) && walk(node.children)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  walk(nextTree);
+  return nextTree;
+}
+
+function buildShardPlacement(file, allNodes, parityCount = 2) {
+  const healthyNodes = allNodes.filter((n) => n.status !== 'fault');
+  const available = healthyNodes.length > 0 ? healthyNodes : allNodes;
+  const dataShards = Math.max(1, Number(file.shards) || 1);
+  const replicaCount = Math.max(1, Number(file.replicas) || 3);
+  const totalShards = dataShards + parityCount;
+
+  const shards = Array.from({ length: totalShards }, (_, shardIndex) => {
+    const replicas = Array.from({ length: replicaCount }, (_, replicaIndex) => {
+      const node = available[(shardIndex * 3 + replicaIndex) % Math.max(available.length, 1)];
+      return {
+        nodeId: node?.id || 'UNASSIGNED',
+        region: node?.region || 'UNKNOWN',
+        status: 'healthy',
+      };
+    });
+
+    return {
+      shardId: `S${String(shardIndex + 1).padStart(2, '0')}`,
+      kind: shardIndex < dataShards ? 'data' : 'parity',
+      replicas,
+    };
+  });
+
+  return {
+    fileName: file.name,
+    dataShards,
+    parityShards: parityCount,
+    replicaCount,
+    shards,
+  };
+}
+
+function markFaultInPlacements(currentPlacements, failedNodeId) {
+  const next = deepClone(currentPlacements);
+  Object.values(next).forEach((placement) => {
+    placement.shards.forEach((shard) => {
+      shard.replicas.forEach((replica) => {
+        if (replica.nodeId === failedNodeId) {
+          replica.status = 'degraded';
+        }
+      });
+    });
+  });
+  return next;
+}
+
+function healDegradedShards(currentPlacements, allNodes) {
+  const healthyNodes = allNodes.filter((n) => n.status === 'healthy');
+  if (healthyNodes.length === 0) {
+    return { placements: currentPlacements, events: [] };
+  }
+
+  const next = deepClone(currentPlacements);
+  const events = [];
+
+  Object.values(next).forEach((placement) => {
+    placement.shards.forEach((shard) => {
+      const degradedReplicas = shard.replicas.filter((r) => r.status === 'degraded');
+      degradedReplicas.forEach((replica) => {
+        const usedNodeIds = new Set(shard.replicas.map((r) => r.nodeId));
+        const target = healthyNodes.find((n) => !usedNodeIds.has(n.id));
+        if (!target) return;
+
+        replica.nodeId = target.id;
+        replica.region = target.region;
+        replica.status = 'healthy';
+        events.push({
+          fileName: placement.fileName,
+          shardId: shard.shardId,
+          nodeId: target.id,
+        });
+      });
+    });
+  });
+
+  return { placements: next, events };
+}
+
 function toFaultEvent({ nodeId, severity, message, recovery, region, resolved = false }) {
   return {
     id: `FLT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -161,6 +260,15 @@ export function ClusterProvider({ children }) {
   const [notificationPrefs, setNotificationPrefs] = useState(() => loadPersisted('aether.notifications', deepClone(settingsNotifications)));
   const [keys, setKeys] = useState(() => loadPersisted('aether.keys', deepClone(apiKeys)));
   const [activeTransfers, setActiveTransfers] = useState([]);
+  const [simulationFeed, setSimulationFeed] = useState([]);
+  const [shardPlacements, setShardPlacements] = useState(() => {
+    const initialFiles = flattenFiles(fileSystemTree);
+    const initial = {};
+    initialFiles.forEach((file) => {
+      initial[file.name] = buildShardPlacement(file, nodeList, Number(clusterConfig.shardParity) || 2);
+    });
+    return initial;
+  });
   const nodesRef = useRef(nodes);
 
   useEffect(() => {
@@ -308,6 +416,26 @@ export function ClusterProvider({ children }) {
       { type: 'fault', msg: `Fault injected on ${faultNode.id}`, time: 'just now', icon: 'alert' },
       ...prev,
     ].slice(0, 10));
+    setShardPlacements((prev) => markFaultInPlacements(prev, faultNode.id));
+    setSimulationFeed((prev) => [
+      {
+        id: `SIM-${Date.now()}`,
+        level: 'FAULT',
+        message: `Node failure on ${faultNode.id}: affected shard replicas marked degraded`,
+        time: nowLabel(),
+      },
+      ...prev,
+    ].slice(0, 30));
+    setFileActivity((prev) => [
+      {
+        action: 'FAULT',
+        file: '/cluster/shards',
+        node: faultNode.id,
+        time: 'just now',
+        status: 'pending',
+      },
+      ...prev,
+    ].slice(0, 20));
   }
 
   function recoverNode(nodeId) {
@@ -342,6 +470,15 @@ export function ClusterProvider({ children }) {
       { type: 'recover', msg: `Recovery completed for ${nodeId}`, time: 'just now', icon: 'check' },
       ...prev,
     ].slice(0, 10));
+    setSimulationFeed((prev) => [
+      {
+        id: `SIM-${Date.now()}`,
+        level: 'RECOVERY',
+        message: `${nodeId} restored and participating in quorum again`,
+        time: nowLabel(),
+      },
+      ...prev,
+    ].slice(0, 30));
   }
 
   function requestDiagnostic(nodeId) {
@@ -373,6 +510,10 @@ export function ClusterProvider({ children }) {
     };
 
     setFileTree((prev) => addFileToUploadsFolder(prev, newFile));
+    setShardPlacements((prev) => ({
+      ...prev,
+      [safeName]: buildShardPlacement(newFile, nodesRef.current, Number(config.shardParity) || 2),
+    }));
     setActiveTransfers((prev) => [
       { id: `UP-${Date.now()}`, fileName: safeName, progress: 0, shards, uploadedShards: 0, speed: '132 MB/s' },
       ...prev,
@@ -381,6 +522,15 @@ export function ClusterProvider({ children }) {
       { action: 'WRITE', file: `/uploads/${safeName}`, node: randomItem(nodesRef.current).id, time: 'just now', status: 'pending' },
       ...prev,
     ].slice(0, 20));
+    setSimulationFeed((prev) => [
+      {
+        id: `SIM-${Date.now()}`,
+        level: 'UPLOAD',
+        message: `${safeName} split into ${shards} data shards + ${(Number(config.shardParity) || 2)} parity shards`,
+        time: nowLabel(),
+      },
+      ...prev,
+    ].slice(0, 30));
   }
 
   function updateConfig(partialConfig) {
@@ -470,8 +620,8 @@ export function ClusterProvider({ children }) {
         };
       }));
 
-      setActiveTransfers((prev) => prev
-        .map((transfer) => {
+      setActiveTransfers((prev) => {
+        const next = prev.map((transfer) => {
           const increment = Math.floor(Math.random() * 22 + 10);
           const progress = clamp(transfer.progress + increment, 0, 100);
           const uploadedShards = Math.floor((progress / 100) * transfer.shards);
@@ -481,9 +631,70 @@ export function ClusterProvider({ children }) {
             uploadedShards,
             speed: progress >= 100 ? 'Complete' : `${Math.floor(Math.random() * 140 + 80)} MB/s`,
           };
-        })
-        .filter((transfer) => transfer.progress < 100)
-      );
+        });
+
+        const completed = next.filter((t) => t.progress >= 100);
+        if (completed.length > 0) {
+          completed.forEach((transfer) => {
+            setFileTree((prevTree) => updateFileInTree(prevTree, transfer.fileName, (file) => {
+              file.status = 'synced';
+              file.modified = toTimestamp();
+            }));
+            setFileActivity((prevAct) => [
+              {
+                action: 'SYNC',
+                file: `/uploads/${transfer.fileName}`,
+                node: randomItem(nodesRef.current).id,
+                time: 'just now',
+                status: 'success',
+              },
+              ...prevAct,
+            ].slice(0, 20));
+            setSimulationFeed((prevFeed) => [
+              {
+                id: `SIM-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+                level: 'SYNC',
+                message: `${transfer.fileName} fully replicated and marked synced`,
+                time: nowLabel(),
+              },
+              ...prevFeed,
+            ].slice(0, 30));
+          });
+        }
+
+        return next.filter((transfer) => transfer.progress < 100);
+      });
+
+      if (config.autoHealingEnabled) {
+        setShardPlacements((prevPlacements) => {
+          const healing = healDegradedShards(prevPlacements, nodesRef.current);
+          if (healing.events.length > 0) {
+            const healed = healing.events.slice(0, 3);
+            healed.forEach((event) => {
+              setFileActivity((prevAct) => [
+                {
+                  action: 'REPLICATE',
+                  file: `/uploads/${event.fileName}`,
+                  node: event.nodeId,
+                  time: 'just now',
+                  status: 'success',
+                },
+                ...prevAct,
+              ].slice(0, 20));
+              setSimulationFeed((prevFeed) => [
+                {
+                  id: `SIM-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+                  level: 'HEAL',
+                  message: `${event.fileName} ${event.shardId} re-replicated to ${event.nodeId}`,
+                  time: nowLabel(),
+                },
+                ...prevFeed,
+              ].slice(0, 30));
+            });
+          }
+          return healing.placements;
+        });
+      }
 
       if (Math.random() < 0.08) {
         const randomHealthy = nodesRef.current.find((n) => n.status === 'healthy');
@@ -511,6 +722,8 @@ export function ClusterProvider({ children }) {
     notificationPrefs,
     keys,
     activeTransfers,
+    shardPlacements,
+    simulationFeed,
     dashboardActivity,
     systemMetrics,
     storageByRegion,

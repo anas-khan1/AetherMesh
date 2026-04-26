@@ -273,6 +273,42 @@ function ActiveConsensus() {
   );
 }
 
+function DemoPlaybook() {
+  const steps = [
+    'Open File Explorer and upload a file (for example 512 MB).',
+    'Select the file to inspect data shards, parity shards, and node replica placement.',
+    'Click a replica badge to inject fault on that specific node.',
+    'Go to Fault Logs to show active incident and recovery progression.',
+    'Return to File Explorer and watch HEAL events as shards are re-replicated.',
+    'Open Network Map and Node Health to show node status transitions live.',
+  ];
+
+  return (
+    <motion.section
+      variants={fadeUp}
+      initial="hidden"
+      whileInView="visible"
+      viewport={{ once: true }}
+      custom={2}
+      className="panel p-5 md:p-6"
+    >
+      <h2 className="panel-title mb-3" style={{ color: 'var(--color-cyan-primary)' }}>
+        Simulation Demo Playbook
+      </h2>
+      <div className="flex flex-col gap-2">
+        {steps.map((step, idx) => (
+          <div key={step} className="panel-soft p-3 flex items-start gap-3">
+            <span className="text-xs font-display font-bold" style={{ color: 'var(--color-cyan-neon)' }}>
+              {String(idx + 1).padStart(2, '0')}
+            </span>
+            <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>{step}</p>
+          </div>
+        ))}
+      </div>
+    </motion.section>
+  );
+}
+
 export default function Documentation() {
   const bftSteps = [
     { label: 'Pre-prepare', desc: 'Leader broadcasts a proposed block to validator nodes.' },
@@ -347,6 +383,8 @@ export default function Documentation() {
                   <ConsensusLog />
                 </div>
               </motion.section>
+
+              <DemoPlaybook />
             </div>
 
             <aside className="flex flex-col gap-5">
