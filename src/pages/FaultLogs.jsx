@@ -4,7 +4,7 @@ import { AlertTriangle, AlertCircle, Info, Shield, Clock, RefreshCw, TrendingDow
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import SearchInput from '../components/ui/SearchInput';
 import Timeline from '../components/ui/Timeline';
-import { faultLogEntries, faultStats, faultTimeline } from '../data/mockData';
+import { useCluster } from '../context/ClusterContext';
 
 const severityColors = {
   CRITICAL: 'var(--color-error-hot)',
@@ -13,7 +13,7 @@ const severityColors = {
   INFO: 'var(--color-cyan-neon)',
 };
 
-function FaultTimelineChart() {
+function FaultTimelineChart({ data }) {
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3, duration: 0.45 }} className="panel p-5">
       <div className="flex items-center gap-2 mb-4">
@@ -21,7 +21,7 @@ function FaultTimelineChart() {
         <h3 className="panel-title">Fault Frequency (24h)</h3>
       </div>
       <ResponsiveContainer width="100%" height={200}>
-        <AreaChart data={faultTimeline}>
+        <AreaChart data={data}>
           <defs>
             <linearGradient id="critGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#ff6b6b" stopOpacity={0.3} /><stop offset="100%" stopColor="#ff6b6b" stopOpacity={0.02} /></linearGradient>
             <linearGradient id="errGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#ffb4ab" stopOpacity={0.2} /><stop offset="100%" stopColor="#ffb4ab" stopOpacity={0.01} /></linearGradient>
@@ -40,12 +40,7 @@ function FaultTimelineChart() {
   );
 }
 
-function ActiveRecoveries() {
-  const recoveries = [
-    { node: 'AE-NODE-X056', issue: 'NVMe failure', progress: 78, eta: '~4 min' },
-    { node: 'AE-NODE-X102', issue: 'Network partition', progress: 45, eta: '~8 min' },
-    { node: 'AE-NODE-X019', issue: 'Memory overflow', progress: 92, eta: '~1 min' },
-  ];
+function ActiveRecoveries({ recoveries, onRecover }) {
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }} className="panel p-5">
       <div className="flex items-center gap-2 mb-4">
@@ -53,14 +48,22 @@ function ActiveRecoveries() {
         <h3 className="panel-title">Active Recoveries</h3>
       </div>
       <div className="flex flex-col gap-3">
+        {recoveries.length === 0 && (
+          <div className="panel-soft p-3 text-xs font-mono" style={{ color: 'var(--color-text-muted)' }}>
+            No active recoveries. System is stable.
+          </div>
+        )}
         {recoveries.map((r) => (
-          <div key={r.node} className="panel-soft p-3">
-            <div className="flex justify-between mb-1"><span className="text-xs font-display font-bold" style={{ color: 'var(--color-cyan-primary)' }}>{r.node}</span><span className="text-[9px] font-mono" style={{ color: 'var(--color-text-subtle)' }}>ETA: {r.eta}</span></div>
+          <div key={r.id} className="panel-soft p-3">
+            <div className="flex justify-between mb-1"><span className="text-xs font-display font-bold" style={{ color: 'var(--color-cyan-primary)' }}>{r.nodeId}</span><span className="text-[9px] font-mono" style={{ color: 'var(--color-text-subtle)' }}>ETA: {r.eta}</span></div>
             <div className="text-[10px] font-mono mb-2" style={{ color: 'var(--color-text-muted)' }}>{r.issue}</div>
             <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--color-focus)' }}>
               <motion.div initial={{ width: 0 }} animate={{ width: `${r.progress}%` }} transition={{ duration: 1.2 }} className="h-full rounded-full" style={{ background: r.progress > 80 ? 'linear-gradient(90deg, var(--color-teal-neon), var(--color-success))' : 'linear-gradient(90deg, var(--color-cyan-neon), var(--color-teal-neon))' }} />
             </div>
-            <div className="text-right mt-1"><span className="text-[9px] font-mono" style={{ color: 'var(--color-text-subtle)' }}>{r.progress}%</span></div>
+            <div className="text-right mt-1 flex items-center justify-between">
+              <button className="filter-btn" onClick={() => onRecover(r.nodeId)}>Recover Now</button>
+              <span className="text-[9px] font-mono" style={{ color: 'var(--color-text-subtle)' }}>{r.progress}%</span>
+            </div>
           </div>
         ))}
       </div>
@@ -69,15 +72,16 @@ function ActiveRecoveries() {
 }
 
 export default function FaultLogs() {
+  const { faultLogs, faultStats, faultTimelineData, recoveries, injectFault, recoverNode } = useCluster();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeSeverity, setActiveSeverity] = useState('all');
 
   const filteredLogs = useMemo(() => {
-    let logs = faultLogEntries;
+    let logs = faultLogs;
     if (activeSeverity !== 'all') logs = logs.filter((l) => l.severity === activeSeverity);
     if (searchQuery.trim()) { const q = searchQuery.toLowerCase(); logs = logs.filter((l) => l.message.toLowerCase().includes(q)); }
     return logs;
-  }, [activeSeverity, searchQuery]);
+  }, [activeSeverity, faultLogs, searchQuery]);
 
   const statCards = [
     { icon: Clock, label: 'MTTR', value: faultStats.mttr, color: 'var(--color-cyan-primary)' },
@@ -115,16 +119,19 @@ export default function FaultLogs() {
 
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-5">
           <div className="flex flex-col gap-5">
-            <FaultTimelineChart />
+            <FaultTimelineChart data={faultTimelineData} />
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }} className="panel p-5">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
                 <h3 className="panel-title">Event Log</h3>
                 <div style={{ width: '180px' }}><SearchInput value={searchQuery} onChange={setSearchQuery} placeholder="Search logs..." /></div>
               </div>
+              <div className="mb-4">
+                <button className="filter-btn" onClick={() => injectFault()}>Inject Random Fault</button>
+              </div>
               <div className="flex flex-wrap items-center gap-2 mb-4">
                 {['all', 'CRITICAL', 'ERROR', 'WARNING', 'INFO'].map((sev) => (
                   <button key={sev} onClick={() => setActiveSeverity(sev)} className={`filter-btn${activeSeverity === sev ? ' active' : ''}`}>
-                    {sev === 'all' ? `All (${faultLogEntries.length})` : `${sev} (${faultLogEntries.filter((l) => l.severity === sev).length})`}
+                    {sev === 'all' ? `All (${faultLogs.length})` : `${sev} (${faultLogs.filter((l) => l.severity === sev).length})`}
                   </button>
                 ))}
               </div>
@@ -132,18 +139,18 @@ export default function FaultLogs() {
             </motion.div>
           </div>
           <div className="flex flex-col gap-5">
-            <ActiveRecoveries />
+            <ActiveRecoveries recoveries={recoveries} onRecover={recoverNode} />
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="panel p-5">
               <h3 className="panel-title mb-4">Faults by Region</h3>
               <div className="flex flex-col gap-3">
                 {['US-EAST-1', 'US-WEST-2', 'EU-WEST-1', 'EU-CENTRAL-1', 'AP-SOUTH-1', 'AP-NORTH-1'].map((region) => {
-                  const count = faultLogEntries.filter((l) => l.region === region && !l.resolved).length;
-                  const total = faultLogEntries.filter((l) => l.region === region).length;
+                  const count = faultLogs.filter((l) => l.region === region && !l.resolved).length;
+                  const total = faultLogs.filter((l) => l.region === region).length;
                   return (
                     <div key={region} className="flex items-center gap-3">
                       <span className="text-xs font-mono w-24 flex-shrink-0" style={{ color: 'var(--color-text-muted)' }}>{region}</span>
                       <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--color-focus)' }}>
-                        <div className="h-full rounded-full" style={{ width: `${Math.min((total / faultLogEntries.length) * 300, 100)}%`, background: count > 2 ? 'var(--color-error-hot)' : 'linear-gradient(90deg, var(--color-cyan-neon), var(--color-teal-neon))' }} />
+                        <div className="h-full rounded-full" style={{ width: `${Math.min((total / Math.max(faultLogs.length, 1)) * 300, 100)}%`, background: count > 2 ? 'var(--color-error-hot)' : 'linear-gradient(90deg, var(--color-cyan-neon), var(--color-teal-neon))' }} />
                       </div>
                       <span className="text-[10px] font-mono w-12 text-right" style={{ color: count > 0 ? 'var(--color-warning)' : 'var(--color-text-subtle)' }}>{count} active</span>
                     </div>

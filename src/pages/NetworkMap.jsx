@@ -1,7 +1,8 @@
 import { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Activity, Server, Wifi, Globe, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
-import { nodeList, regions } from '../data/mockData';
+import { regions } from '../data/mockData';
+import { useCluster } from '../context/ClusterContext';
 
 const statusColors = {
   healthy: '#11E8F6',
@@ -204,22 +205,23 @@ function MeshTopology({ nodes, zoom, onSelectNode }) {
 }
 
 export default function NetworkMap() {
+  const { nodes, systemMetrics, injectFault, recoverNode } = useCluster();
   const [selectedNode, setSelectedNode] = useState(null);
   const [zoom, setZoom] = useState(1);
   const [activeFilter, setActiveFilter] = useState('all');
 
   const filteredNodes = useMemo(() => {
-    if (activeFilter === 'all') return nodeList;
-    if (activeFilter === 'checking') return nodeList.filter((n) => n.status === 'checking' || n.status === 'loading');
-    return nodeList.filter((n) => n.status === activeFilter);
-  }, [activeFilter]);
+    if (activeFilter === 'all') return nodes;
+    if (activeFilter === 'checking') return nodes.filter((n) => n.status === 'checking' || n.status === 'loading');
+    return nodes.filter((n) => n.status === activeFilter);
+  }, [activeFilter, nodes]);
 
   const stats = useMemo(() => ({
-    total: nodeList.length,
-    healthy: nodeList.filter((n) => n.status === 'healthy').length,
-    faulty: nodeList.filter((n) => n.status === 'fault').length,
-    checking: nodeList.filter((n) => n.status === 'checking' || n.status === 'loading').length,
-  }), []);
+    total: nodes.length,
+    healthy: nodes.filter((n) => n.status === 'healthy').length,
+    faulty: nodes.filter((n) => n.status === 'fault').length,
+    checking: nodes.filter((n) => n.status === 'checking' || n.status === 'loading').length,
+  }), [nodes]);
 
   const handleZoomIn = useCallback(() => setZoom((z) => Math.min(z + 0.15, 2)), []);
   const handleZoomOut = useCallback(() => setZoom((z) => Math.max(z - 0.15, 0.5)), []);
@@ -268,7 +270,7 @@ export default function NetworkMap() {
             { icon: Server, label: 'Total Nodes', value: stats.total, color: 'var(--color-cyan-primary)' },
             { icon: Activity, label: 'Healthy', value: stats.healthy, color: 'var(--color-cyan-neon)' },
             { icon: Globe, label: 'Regions', value: regions.length, color: 'var(--color-teal-neon)' },
-            { icon: Wifi, label: 'Avg Latency', value: '12.4ms', color: 'var(--color-teal-neon)' },
+              { icon: Wifi, label: 'Avg Latency', value: `${systemMetrics.meshLatency}ms`, color: 'var(--color-teal-neon)' },
           ].map((s, i) => (
             <motion.div
               key={s.label}
@@ -314,6 +316,20 @@ export default function NetworkMap() {
           </div>
         </motion.div>
 
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.28 }}
+          className="flex flex-wrap items-center gap-2 mb-4"
+        >
+          <button className="filter-btn" onClick={() => injectFault(selectedNode?.id)}>Inject Fault</button>
+          {selectedNode?.status === 'fault' && (
+            <button className="filter-btn active" onClick={() => recoverNode(selectedNode.id)}>
+              Recover Selected
+            </button>
+          )}
+        </motion.div>
+
         {/* Map */}
         <motion.div
           initial={{ opacity: 0, scale: 0.98 }}
@@ -354,7 +370,7 @@ export default function NetworkMap() {
           className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mt-5"
         >
           {regions.map((r, i) => {
-            const regionNodes = nodeList.filter((n) => n.region === r.id);
+            const regionNodes = nodes.filter((n) => n.region === r.id);
             const healthy = regionNodes.filter((n) => n.status === 'healthy').length;
             const faulty = regionNodes.filter((n) => n.status === 'fault').length;
             return (

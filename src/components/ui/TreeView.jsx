@@ -97,10 +97,34 @@ function TreeNode({ node, depth = 0, onSelectFile, selectedFile }) {
   );
 }
 
-export default function TreeView({ tree, onSelectFile, selectedFile }) {
+export default function TreeView({ tree, onSelectFile, selectedFile, searchQuery = '' }) {
+
+  const filterTree = (nodes, query) => {
+    if (!query.trim()) return nodes;
+    const q = query.toLowerCase();
+
+    const result = [];
+    nodes.forEach((node) => {
+      if (node.type === 'file') {
+        if (node.name.toLowerCase().includes(q)) {
+          result.push(node);
+        }
+        return;
+      }
+
+      const childMatches = filterTree(node.children || [], query);
+      if (node.name.toLowerCase().includes(q) || childMatches.length > 0) {
+        result.push({ ...node, children: childMatches });
+      }
+    });
+    return result;
+  };
+
+  const visibleTree = filterTree(tree, searchQuery);
+
   return (
     <div className="tree-view">
-      {tree.map((node) => (
+      {visibleTree.map((node) => (
         <TreeNode
           key={node.name}
           node={node}

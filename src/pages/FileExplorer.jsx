@@ -4,7 +4,7 @@ import { HardDrive, Upload, FolderTree, Database, Search, RefreshCw } from 'luci
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import TreeView from '../components/ui/TreeView';
 import SearchInput from '../components/ui/SearchInput';
-import { fileSystemTree, storageByRegion, recentFileActivity, systemMetrics } from '../data/mockData';
+import { useCluster } from '../context/ClusterContext';
 
 function FileDetailPanel({ file }) {
   if (!file) {
@@ -84,7 +84,7 @@ function FileDetailPanel({ file }) {
   );
 }
 
-function StorageChart() {
+function StorageChart({ storageByRegion }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -118,12 +118,7 @@ function StorageChart() {
   );
 }
 
-function UploadSimulation() {
-  const [uploads] = useState([
-    { name: 'new_dataset_v4.parquet', progress: 73, speed: '245 MB/s', shards: '12/16' },
-    { name: 'model_weights.bin', progress: 100, speed: 'Complete', shards: '8/8' },
-    { name: 'config_update.yaml', progress: 45, speed: '12 MB/s', shards: '1/1' },
-  ]);
+function UploadSimulation({ uploads }) {
 
   return (
     <motion.div
@@ -137,10 +132,15 @@ function UploadSimulation() {
         <Upload size={14} style={{ color: 'var(--color-cyan-neon)' }} />
       </div>
       <div className="flex flex-col gap-3">
+        {uploads.length === 0 && (
+          <div className="panel-soft p-3 text-xs font-mono" style={{ color: 'var(--color-text-muted)' }}>
+            No active transfers. Use the upload simulator to add a file.
+          </div>
+        )}
         {uploads.map((u) => (
-          <div key={u.name} className="panel-soft p-3">
+          <div key={u.id} className="panel-soft p-3">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-mono truncate flex-1" style={{ color: 'var(--color-text-primary)' }}>{u.name}</span>
+              <span className="text-xs font-mono truncate flex-1" style={{ color: 'var(--color-text-primary)' }}>{u.fileName}</span>
               <span className="text-[10px] font-mono ml-2" style={{ color: u.progress === 100 ? 'var(--color-teal-neon)' : 'var(--color-cyan-neon)' }}>{u.speed}</span>
             </div>
             <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--color-focus)' }}>
@@ -157,7 +157,7 @@ function UploadSimulation() {
               />
             </div>
             <div className="flex items-center justify-between mt-1.5">
-              <span className="text-[9px] font-mono" style={{ color: 'var(--color-text-subtle)' }}>Shards: {u.shards}</span>
+              <span className="text-[9px] font-mono" style={{ color: 'var(--color-text-subtle)' }}>Shards: {u.uploadedShards}/{u.shards}</span>
               <span className="text-[9px] font-mono" style={{ color: 'var(--color-text-subtle)' }}>{u.progress}%</span>
             </div>
           </div>
@@ -168,15 +168,26 @@ function UploadSimulation() {
 }
 
 export default function FileExplorer() {
+  const {
+    fileTree,
+    fileActivity,
+    storageByRegion,
+    systemMetrics,
+    activeTransfers,
+    uploadFile,
+    config,
+  } = useCluster();
   const [selectedFile, setSelectedFile] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [uploadName, setUploadName] = useState('project_checkpoint.bin');
+  const [uploadSize, setUploadSize] = useState(256);
 
-  const stats = [
+  const stats = useMemo(() => [
     { icon: Database, label: 'Total Storage', value: systemMetrics.totalStorage, color: 'var(--color-cyan-primary)' },
     { icon: HardDrive, label: 'Used', value: systemMetrics.usedStorage, color: 'var(--color-cyan-neon)' },
     { icon: FolderTree, label: 'Files Stored', value: systemMetrics.filesStored.toLocaleString(), color: 'var(--color-teal-neon)' },
-    { icon: RefreshCw, label: 'Replication Factor', value: '3x', color: 'var(--color-warning)' },
-  ];
+    { icon: RefreshCw, label: 'Replication Factor', value: `${config.replicationFactor}x`, color: 'var(--color-warning)' },
+  ], [config.replicationFactor, systemMetrics]);
 
   return (
     <section className="section-shell" style={{ paddingTop: '1.5rem' }}>
@@ -236,7 +247,41 @@ export default function FileExplorer() {
                   <SearchInput value={searchQuery} onChange={setSearchQuery} placeholder="Search files..." />
                 </div>
               </div>
-              <TreeView tree={fileSystemTree} onSelectFile={setSelectedFile} selectedFile={selectedFile} />
+              <TreeView tree={fileTree} searchQuery={searchQuery} onSelectFile={setSelectedFile} selectedFile={selectedFile} />
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.22, duration: 0.4 }}
+              className="panel p-5"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="panel-title">Upload Simulator</h3>
+                <Upload size={14} style={{ color: 'var(--color-cyan-neon)' }} />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px_auto] gap-2">
+                <input
+                  value={uploadName}
+                  onChange={(e) => setUploadName(e.target.value)}
+                  className="settings-input"
+                  placeholder="filename.ext"
+                />
+                <input
+                  value={uploadSize}
+                  onChange={(e) => setUploadSize(Number(e.target.value) || 0)}
+                  className="settings-input"
+                  type="number"
+                  min={8}
+                  max={10240}
+                />
+                <button className="filter-btn active" onClick={() => uploadFile(uploadName, uploadSize)}>
+                  Upload
+                </button>
+              </div>
+              <p className="text-[11px] mt-2" style={{ color: 'var(--color-text-subtle)' }}>
+                Size is in MB. Shards are computed from max shard size and replication follows cluster config.
+              </p>
             </motion.div>
 
             {/* Recent Activity */}
@@ -248,7 +293,7 @@ export default function FileExplorer() {
             >
               <h3 className="panel-title mb-4">Recent File Activity</h3>
               <div className="flex flex-col gap-2">
-                {recentFileActivity.map((a, i) => (
+                {fileActivity.map((a, i) => (
                   <motion.div
                     key={i}
                     initial={{ opacity: 0, x: -8 }}
@@ -275,8 +320,8 @@ export default function FileExplorer() {
           {/* Right: Detail panel + Charts */}
           <div className="flex flex-col gap-5">
             <FileDetailPanel file={selectedFile} />
-            <UploadSimulation />
-            <StorageChart />
+            <UploadSimulation uploads={activeTransfers} />
+            <StorageChart storageByRegion={storageByRegion} />
           </div>
         </div>
       </div>

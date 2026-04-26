@@ -3,11 +3,12 @@ import { motion } from 'framer-motion';
 import { Gauge, ArrowUpRight, ArrowDownRight, Minus, Zap, HardDrive, Network, BarChart3 } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
 import { throughputTimeSeries, iopsDistribution, bandwidthByRegion, topConsumers, latencyDistribution } from '../data/mockData';
+import { useCluster } from '../context/ClusterContext';
 
 const trendIcons = { up: ArrowUpRight, down: ArrowDownRight, stable: Minus };
 const trendColors = { up: 'var(--color-cyan-neon)', down: 'var(--color-error-hot)', stable: 'var(--color-text-muted)' };
 
-function ThroughputChart() {
+function ThroughputChart({ data }) {
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="panel p-5">
       <div className="flex items-center gap-2 mb-4">
@@ -15,7 +16,7 @@ function ThroughputChart() {
         <h3 className="panel-title">Read/Write Throughput (24h)</h3>
       </div>
       <ResponsiveContainer width="100%" height={220}>
-        <AreaChart data={throughputTimeSeries}>
+        <AreaChart data={data}>
           <defs>
             <linearGradient id="readGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#11E8F6" stopOpacity={0.25} /><stop offset="100%" stopColor="#11E8F6" stopOpacity={0.02} /></linearGradient>
             <linearGradient id="writeGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#5CF2C6" stopOpacity={0.2} /><stop offset="100%" stopColor="#5CF2C6" stopOpacity={0.01} /></linearGradient>
@@ -107,14 +108,15 @@ function TopConsumersTable() {
 }
 
 export default function IOTraffic() {
-  const totalRead = throughputTimeSeries.reduce((s, d) => s + d.read, 0);
-  const totalWrite = throughputTimeSeries.reduce((s, d) => s + d.write, 0);
+  const { trafficSeries, systemMetrics } = useCluster();
+  const totalRead = trafficSeries.reduce((s, d) => s + d.read, 0);
+  const totalWrite = trafficSeries.reduce((s, d) => s + d.write, 0);
 
   const statCards = [
     { icon: Zap, label: 'Avg Read', value: `${Math.round(totalRead / 24)} MB/s`, color: 'var(--color-cyan-neon)' },
     { icon: HardDrive, label: 'Avg Write', value: `${Math.round(totalWrite / 24)} MB/s`, color: 'var(--color-teal-neon)' },
     { icon: Network, label: 'Total Bandwidth', value: `${Math.round((totalRead + totalWrite) / 24)} MB/s`, color: 'var(--color-cyan-primary)' },
-    { icon: BarChart3, label: 'Avg Latency', value: '12.4 ms', color: 'var(--color-warning)' },
+    { icon: BarChart3, label: 'Avg Latency', value: `${systemMetrics.meshLatency} ms`, color: 'var(--color-warning)' },
   ];
 
   return (
@@ -137,7 +139,7 @@ export default function IOTraffic() {
 
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-5">
           <div className="flex flex-col gap-5">
-            <ThroughputChart />
+            <ThroughputChart data={trafficSeries} />
             <LatencyHistogram />
             <TopConsumersTable />
           </div>

@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Activity, Server, AlertTriangle, Wifi } from 'lucide-react';
 import NodeBadge from '../components/ui/NodeBadge';
-import { nodeList } from '../data/mockData';
+import { useCluster } from '../context/ClusterContext';
 
 const filters = ['all', 'healthy', 'checking', 'fault'];
 
@@ -120,23 +120,24 @@ function NodeDetailOverlay({ node, onClose }) {
 }
 
 export default function NodeHealth() {
+  const { nodes, systemMetrics, injectFault, recoverNode } = useCluster();
   const [activeFilter, setActiveFilter] = useState('all');
   const [selectedNode, setSelectedNode] = useState(null);
 
   const filteredNodes = useMemo(() => {
-    if (activeFilter === 'all') return nodeList;
-    if (activeFilter === 'checking') return nodeList.filter((n) => n.status === 'checking' || n.status === 'loading');
-    return nodeList.filter((n) => n.status === activeFilter);
-  }, [activeFilter]);
+    if (activeFilter === 'all') return nodes;
+    if (activeFilter === 'checking') return nodes.filter((n) => n.status === 'checking' || n.status === 'loading');
+    return nodes.filter((n) => n.status === activeFilter);
+  }, [activeFilter, nodes]);
 
   const stats = useMemo(
     () => ({
-      total: nodeList.length,
-      healthy: nodeList.filter((n) => n.status === 'healthy').length,
-      faulty: nodeList.filter((n) => n.status === 'fault').length,
-      avgLatency: '12.4ms',
+      total: nodes.length,
+      healthy: nodes.filter((n) => n.status === 'healthy').length,
+      faulty: nodes.filter((n) => n.status === 'fault').length,
+      avgLatency: `${systemMetrics.meshLatency}ms`,
     }),
-    []
+    [nodes, systemMetrics.meshLatency]
   );
 
   return (
@@ -200,14 +201,28 @@ export default function NodeHealth() {
               className={`filter-btn${activeFilter === f ? ' active' : ''}`}
             >
               {f === 'all'
-                ? `All (${nodeList.length})`
+                ? `All (${nodes.length})`
                 : f === 'healthy'
                   ? `Healthy (${stats.healthy})`
                   : f === 'checking'
-                    ? `Checking (${nodeList.filter((n) => n.status === 'checking' || n.status === 'loading').length})`
+                    ? `Checking (${nodes.filter((n) => n.status === 'checking' || n.status === 'loading').length})`
                     : `Fault (${stats.faulty})`}
             </button>
           ))}
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3 }}
+          className="flex flex-wrap items-center gap-2 mb-4"
+        >
+          <button className="filter-btn" onClick={() => injectFault()}>Inject Random Fault</button>
+          {selectedNode?.status === 'fault' && (
+            <button className="filter-btn active" onClick={() => recoverNode(selectedNode.id)}>
+              Recover Selected Node
+            </button>
+          )}
         </motion.div>
 
         <motion.div

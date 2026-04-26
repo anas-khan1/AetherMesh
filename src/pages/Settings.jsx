@@ -1,11 +1,9 @@
-import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Settings as SettingsIcon, Server, Bell, Key, Shield, Info, Save, RotateCcw } from 'lucide-react';
+import { Server, Bell, Key, Info, Save, RotateCcw } from 'lucide-react';
 import Toggle from '../components/ui/Toggle';
-import { clusterConfig, settingsNotifications, apiKeys } from '../data/mockData';
+import { useCluster } from '../context/ClusterContext';
 
-function ClusterConfiguration() {
-  const [config, setConfig] = useState(clusterConfig);
+function ClusterConfiguration({ config, onConfigChange, onReset }) {
   const configItems = [
     { key: 'replicationFactor', label: 'Replication Factor', type: 'number' },
     { key: 'shardParity', label: 'Shard Parity', type: 'number' },
@@ -28,7 +26,7 @@ function ClusterConfiguration() {
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-2"><Server size={14} style={{ color: 'var(--color-cyan-neon)' }} /><h3 className="panel-title">Cluster Configuration</h3></div>
         <div className="flex items-center gap-2">
-          <button className="icon-btn" title="Reset to defaults"><RotateCcw size={13} /></button>
+          <button className="icon-btn" title="Reset to defaults" onClick={onReset}><RotateCcw size={13} /></button>
           <button className="filter-btn active flex items-center gap-1.5"><Save size={11} />Save Changes</button>
         </div>
       </div>
@@ -39,7 +37,7 @@ function ClusterConfiguration() {
             <input
               type={item.type}
               value={config[item.key]}
-              onChange={(e) => setConfig((c) => ({ ...c, [item.key]: item.type === 'number' ? Number(e.target.value) : e.target.value }))}
+              onChange={(e) => onConfigChange({ [item.key]: item.type === 'number' ? Number(e.target.value) : e.target.value })}
               className="settings-input"
             />
           </div>
@@ -48,35 +46,33 @@ function ClusterConfiguration() {
       <div className="subtle-divider mb-5" />
       <div className="flex flex-col gap-1">
         {toggleItems.map((item) => (
-          <Toggle key={item.key} checked={config[item.key]} onChange={(v) => setConfig((c) => ({ ...c, [item.key]: v }))} label={item.label} description={item.desc} />
+          <Toggle key={item.key} checked={config[item.key]} onChange={(v) => onConfigChange({ [item.key]: v })} label={item.label} description={item.desc} />
         ))}
       </div>
     </motion.div>
   );
 }
 
-function NotificationPreferences() {
-  const [notifs, setNotifs] = useState(settingsNotifications);
-  const handleToggle = (key, val) => { setNotifs((prev) => prev.map((n) => n.key === key ? { ...n, enabled: val } : n)); };
+function NotificationPreferences({ notifs, onToggle }) {
 
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="panel p-5">
       <div className="flex items-center gap-2 mb-5"><Bell size={14} style={{ color: 'var(--color-cyan-neon)' }} /><h3 className="panel-title">Notification Preferences</h3></div>
       <div className="flex flex-col gap-1">
         {notifs.map((n) => (
-          <Toggle key={n.key} checked={n.enabled} onChange={(v) => handleToggle(n.key, v)} label={n.label} description={n.description} />
+          <Toggle key={n.key} checked={n.enabled} onChange={(v) => onToggle(n.key, v)} label={n.label} description={n.description} />
         ))}
       </div>
     </motion.div>
   );
 }
 
-function APIKeyManagement() {
+function APIKeyManagement({ apiKeys, onGenerateKey }) {
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }} className="panel p-5">
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-2"><Key size={14} style={{ color: 'var(--color-cyan-neon)' }} /><h3 className="panel-title">API Keys</h3></div>
-        <button className="filter-btn active">+ Generate New Key</button>
+        <button className="filter-btn active" onClick={onGenerateKey}>+ Generate New Key</button>
       </div>
       <div className="flex flex-col gap-3">
         {apiKeys.map((k) => (
@@ -123,6 +119,16 @@ function SystemInfo() {
 }
 
 export default function Settings() {
+  const {
+    config,
+    notificationPrefs,
+    keys,
+    updateConfig,
+    resetConfig,
+    toggleNotification,
+    generateApiKey,
+  } = useCluster();
+
   return (
     <section className="section-shell" style={{ paddingTop: '1.5rem' }}>
       <div className="shell">
@@ -134,11 +140,11 @@ export default function Settings() {
 
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-5">
           <div className="flex flex-col gap-5">
-            <ClusterConfiguration />
-            <NotificationPreferences />
+            <ClusterConfiguration config={config} onConfigChange={updateConfig} onReset={resetConfig} />
+            <NotificationPreferences notifs={notificationPrefs} onToggle={toggleNotification} />
           </div>
           <div className="flex flex-col gap-5">
-            <APIKeyManagement />
+            <APIKeyManagement apiKeys={keys} onGenerateKey={generateApiKey} />
             <SystemInfo />
           </div>
         </div>

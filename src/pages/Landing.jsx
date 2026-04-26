@@ -2,7 +2,8 @@ import { motion } from 'framer-motion';
 import { ArrowUpRight, Star, Grid3x3, ShieldCheck, CheckCircle2, Server, Database, Shield, Zap, Globe, Lock } from 'lucide-react';
 import GlowButton, { GhostButton } from '../components/ui/GlowButton';
 import CodeBlock from '../components/ui/CodeBlock';
-import { systemMetrics, yamlConfig } from '../data/mockData';
+import { yamlConfig } from '../data/mockData';
+import { useCluster } from '../context/ClusterContext';
 
 const fadeUp = {
   hidden: { opacity: 0, y: 30 },
@@ -102,12 +103,12 @@ function MeshVisualization() {
   );
 }
 
-function StatsTicker() {
+function StatsTicker({ metrics }) {
   const stats = [
-    { label: 'Active Shards', value: systemMetrics.activeShards.toLocaleString() },
-    { label: 'Connected Nodes', value: systemMetrics.connectedNodes.toLocaleString() },
-    { label: 'Global Throughput', value: `${systemMetrics.globalThroughput} GB/s` },
-    { label: 'Total Storage', value: systemMetrics.totalStorage },
+    { label: 'Active Shards', value: metrics.activeShards.toLocaleString() },
+    { label: 'Connected Nodes', value: metrics.connectedNodes.toLocaleString() },
+    { label: 'Global Throughput', value: `${metrics.globalThroughput} GB/s` },
+    { label: 'Total Storage', value: metrics.totalStorage },
   ];
 
   return (
@@ -125,7 +126,7 @@ function StatsTicker() {
             </div>
           ))}
         </div>
-        <span className="text-[11px] font-mono" style={{ color: 'var(--color-text-muted)' }}>Uptime {systemMetrics.uptime}</span>
+        <span className="text-[11px] font-mono" style={{ color: 'var(--color-text-muted)' }}>Uptime {metrics.uptime}</span>
       </div>
     </section>
   );
@@ -198,6 +199,8 @@ function CTASection() {
 }
 
 export default function Landing() {
+  const { systemMetrics } = useCluster();
+
   return (
     <div>
       {/* Hero */}
@@ -231,7 +234,7 @@ export default function Landing() {
         </div>
       </section>
 
-      <StatsTicker />
+      <StatsTicker metrics={systemMetrics} />
 
       {/* Features */}
       <section className="section-shell">

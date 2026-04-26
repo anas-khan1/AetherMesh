@@ -1,6 +1,6 @@
 import { motion, AnimatePresence } from 'framer-motion';
 
-export default function NodeDetails({ node }) {
+export default function NodeDetails({ node, onRequestDiagnostic, onInjectFault }) {
   if (!node) return null;
 
   const metrics = [
@@ -36,14 +36,21 @@ export default function NodeDetails({ node }) {
               ID: {node.id} // LOC: {node.region}
             </span>
           </div>
-          <button
-            className="filter-btn"
-            style={{
-              color: 'var(--color-text-muted)',
-            }}
-          >
-            Request Diagnostic Log
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="filter-btn"
+              style={{ color: 'var(--color-text-muted)' }}
+              onClick={() => onRequestDiagnostic?.(node.id)}
+            >
+              Request Diagnostic Log
+            </button>
+            <button
+              className="filter-btn"
+              onClick={() => onInjectFault?.(node.id)}
+            >
+              Inject Fault
+            </button>
+          </div>
         </div>
 
         {/* Main Metrics */}
