@@ -6,7 +6,7 @@ import TreeView from '../components/ui/TreeView';
 import SearchInput from '../components/ui/SearchInput';
 import { useCluster } from '../context/ClusterContext';
 
-function FileDetailPanel({ file, placement, onInjectFault, onRecoverNode }) {
+function FileDetailPanel({ file, placement, onInjectFault, onRunFaultTolerance }) {
   if (!file) {
     return (
       <div className="panel p-6 flex flex-col items-center justify-center gap-3" style={{ minHeight: '300px' }}>
@@ -17,6 +17,7 @@ function FileDetailPanel({ file, placement, onInjectFault, onRecoverNode }) {
   }
 
   const statusColor = file.status === 'synced' ? 'var(--color-teal-neon)' : 'var(--color-warning)';
+  const hasFault = Boolean(placement?.shards?.some((shard) => shard.replicas.some((replica) => replica.status === 'degraded')));
 
   return (
     <motion.div
@@ -35,6 +36,10 @@ function FileDetailPanel({ file, placement, onInjectFault, onRecoverNode }) {
         }}>
           {file.status}
         </span>
+      </div>
+
+      <div className="panel-soft p-3 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+        Quick meaning: syncing = still distributing shards and copies. synced = finished distribution and recovery-ready.
       </div>
 
       <div className="text-lg font-display font-bold truncate" style={{ color: 'var(--color-text-primary)' }}>{file.name}</div>
@@ -91,6 +96,9 @@ function FileDetailPanel({ file, placement, onInjectFault, onRecoverNode }) {
               {placement.dataShards} data + {placement.parityShards} parity
             </div>
           </div>
+          <p className="text-[11px] mb-2" style={{ color: 'var(--color-text-subtle)' }}>
+            Click a healthy replica badge to fail that node. Then use the Fix Nodes button to run fault tolerance.
+          </p>
           <div className="flex flex-col gap-2 max-h-[260px] overflow-auto pr-1">
             {placement.shards.map((shard) => (
               <div key={shard.shardId} className="panel-soft p-2.5">
@@ -109,8 +117,8 @@ function FileDetailPanel({ file, placement, onInjectFault, onRecoverNode }) {
                         backgroundColor: replica.status === 'degraded' ? 'rgba(255,107,107,0.1)' : 'rgba(17,232,246,0.07)',
                         color: replica.status === 'degraded' ? 'var(--color-error-hot)' : 'var(--color-text-primary)',
                       }}
-                      onClick={() => (replica.status === 'degraded' ? onRecoverNode(replica.nodeId) : onInjectFault(replica.nodeId))}
-                      title={replica.status === 'degraded' ? 'Recover this node' : 'Inject fault on this node'}
+                      onClick={() => replica.status !== 'degraded' && onInjectFault(replica.nodeId)}
+                      title={replica.status === 'degraded' ? 'Degraded replica waiting for manual repair' : 'Inject fault on this node'}
                     >
                       {replica.nodeId.replace('AE-NODE-', '')} ({replica.status})
                     </button>
@@ -118,6 +126,21 @@ function FileDetailPanel({ file, placement, onInjectFault, onRecoverNode }) {
                 </div>
               </div>
             ))}
+          </div>
+
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <button
+              className={`filter-btn${hasFault ? ' active' : ''}`}
+              style={!hasFault ? { opacity: 0.5, cursor: 'not-allowed' } : undefined}
+              onClick={() => hasFault && onRunFaultTolerance(file.name)}
+              disabled={!hasFault}
+              title={hasFault ? 'Run fault tolerance repair' : 'No degraded replicas to repair'}
+            >
+              Fix Nodes (Fault Tolerance)
+            </button>
+            <span className="text-[10px] font-mono" style={{ color: hasFault ? 'var(--color-warning)' : 'var(--color-text-subtle)' }}>
+              {hasFault ? 'Fault detected' : 'No fault'}
+            </span>
           </div>
         </div>
       )}
@@ -254,7 +277,7 @@ export default function FileExplorer() {
     simulationFeed,
     uploadFile,
     injectFault,
-    recoverNode,
+    runFaultTolerance,
     config,
   } = useCluster();
   const [selectedFile, setSelectedFile] = useState(null);
@@ -370,7 +393,7 @@ export default function FileExplorer() {
                 </button>
               </div>
               <p className="text-[11px] mt-2" style={{ color: 'var(--color-text-subtle)' }}>
-                Size is in MB. Shards are computed from max shard size and replication follows cluster config.
+                Size is in MB. The system automatically splits file into shards, adds parity shards, and replicates across nodes.
               </p>
             </motion.div>
 
@@ -393,8 +416,8 @@ export default function FileExplorer() {
                     style={{ backgroundColor: 'rgba(13, 34, 63, 0.4)' }}
                   >
                     <span className="text-[10px] font-display font-bold tracking-wider uppercase px-1.5 py-0.5 rounded" style={{
-                      color: a.action === 'DELETE' ? 'var(--color-error-hot)' : a.action === 'SYNC' || a.action === 'REPLICATE' ? 'var(--color-teal-neon)' : 'var(--color-cyan-neon)',
-                      backgroundColor: a.action === 'DELETE' ? 'rgba(255, 107, 107, 0.1)' : 'rgba(17, 232, 246, 0.08)',
+                      color: a.action === 'DELETE' || a.action === 'FAULT' ? 'var(--color-error-hot)' : a.action === 'RECOVER' ? 'var(--color-teal-neon)' : a.action === 'SYNC' || a.action === 'REPLICATE' ? 'var(--color-teal-neon)' : 'var(--color-cyan-neon)',
+                      backgroundColor: a.action === 'DELETE' || a.action === 'FAULT' ? 'rgba(255, 107, 107, 0.1)' : a.action === 'RECOVER' ? 'rgba(92, 242, 198, 0.1)' : 'rgba(17, 232, 246, 0.08)',
                     }}>
                       {a.action}
                     </span>
@@ -413,7 +436,7 @@ export default function FileExplorer() {
               file={selectedFileLive}
               placement={selectedPlacement}
               onInjectFault={injectFault}
-              onRecoverNode={recoverNode}
+              onRunFaultTolerance={runFaultTolerance}
             />
             <UploadSimulation uploads={activeTransfers} />
             <StorageChart storageByRegion={storageByRegion} />

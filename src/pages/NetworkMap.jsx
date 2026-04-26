@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Activity, Server, Wifi, Globe, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import { X, Activity, Server, Wifi, Globe, ZoomIn, ZoomOut, Maximize2, Zap, ShieldCheck } from 'lucide-react';
 import { regions } from '../data/mockData';
 import { useCluster } from '../context/ClusterContext';
 
@@ -11,7 +11,7 @@ const statusColors = {
   fault: '#ff6b6b',
 };
 
-function NodeTooltip({ node, onClose }) {
+function NodeTooltip({ node, onClose, onRecover, onFault }) {
   if (!node) return null;
   const statusColor = statusColors[node.status] || '#11E8F6';
 
@@ -87,6 +87,23 @@ function NodeTooltip({ node, onClose }) {
             <span className="text-[10px] font-display tracking-wider uppercase" style={{ color: 'var(--color-text-subtle)' }}>Storage</span>
             <span className="text-sm font-mono" style={{ color: 'var(--color-text-primary)' }}>{node.storagePath}</span>
           </div>
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex flex-wrap items-center gap-3 mt-5 pt-4" style={{ borderTop: '1px solid rgba(17, 232, 246, 0.1)' }}>
+          {node.status === 'fault' && onRecover && (
+            <button className="filter-btn active" onClick={() => onRecover(node.id)} style={{ background: 'linear-gradient(135deg, rgba(92,242,198,0.15), rgba(17,232,246,0.1))', borderColor: 'var(--color-teal-neon)', color: 'var(--color-teal-neon)' }}>
+              <ShieldCheck size={12} style={{ marginRight: '4px', display: 'inline' }} /> Recover {node.id.replace('AE-NODE-', '')}
+            </button>
+          )}
+          {node.status === 'healthy' && onFault && (
+            <button className="filter-btn" onClick={() => onFault(node.id)} style={{ borderColor: 'rgba(255,107,107,0.4)', color: 'var(--color-error-hot)' }}>
+              <Zap size={12} style={{ marginRight: '4px', display: 'inline' }} /> Inject Fault
+            </button>
+          )}
+          {(node.status === 'checking' || node.status === 'loading') && (
+            <span className="text-xs font-mono" style={{ color: 'var(--color-warning)' }}>Node is {node.status}...</span>
+          )}
         </div>
       </motion.div>
     </motion.div>
@@ -209,6 +226,24 @@ export default function NetworkMap() {
   const [selectedNode, setSelectedNode] = useState(null);
   const [zoom, setZoom] = useState(1);
   const [activeFilter, setActiveFilter] = useState('all');
+  const [toast, setToast] = useState(null);
+
+  const showToast = useCallback((msg, type = 'info') => {
+    setToast({ msg, type, id: Date.now() });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  const handleInjectFault = useCallback((nodeId) => {
+    injectFault(nodeId);
+    const target = nodeId ? nodes.find((n) => n.id === nodeId) : null;
+    showToast(target ? `⚡ Fault injected on ${target.id}` : '⚡ Random fault injected!', 'fault');
+  }, [injectFault, nodes, showToast]);
+
+  const handleRecover = useCallback((nodeId) => {
+    recoverNode(nodeId);
+    setSelectedNode(null);
+    showToast(`✅ ${nodeId} recovered successfully`, 'recover');
+  }, [recoverNode, showToast]);
 
   const filteredNodes = useMemo(() => {
     if (activeFilter === 'all') return nodes;
@@ -322,12 +357,7 @@ export default function NetworkMap() {
           transition={{ delay: 0.28 }}
           className="flex flex-wrap items-center gap-2 mb-4"
         >
-          <button className="filter-btn" onClick={() => injectFault(selectedNode?.id)}>Inject Fault</button>
-          {selectedNode?.status === 'fault' && (
-            <button className="filter-btn active" onClick={() => recoverNode(selectedNode.id)}>
-              Recover Selected
-            </button>
-          )}
+          <button className="filter-btn" onClick={() => handleInjectFault()}>Inject Random Fault</button>
         </motion.div>
 
         {/* Map */}
@@ -393,8 +423,23 @@ export default function NetworkMap() {
         </motion.div>
       </div>
 
+      {/* Toast */}
       <AnimatePresence>
-        {selectedNode && <NodeTooltip node={selectedNode} onClose={() => setSelectedNode(null)} />}
+        {toast && (
+          <motion.div key={toast.id} initial={{ opacity: 0, y: 40, x: '-50%' }} animate={{ opacity: 1, y: 0, x: '-50%' }} exit={{ opacity: 0, y: 20, x: '-50%' }} className="fixed bottom-6 left-1/2 z-[60] px-5 py-3 rounded-xl font-display text-sm font-bold tracking-wide" style={{ background: toast.type === 'fault' ? 'linear-gradient(135deg, rgba(255,107,107,0.9), rgba(200,50,50,0.95))' : 'linear-gradient(135deg, rgba(92,242,198,0.9), rgba(17,232,246,0.95))', color: toast.type === 'fault' ? '#fff' : '#041329', boxShadow: toast.type === 'fault' ? '0 8px 32px rgba(255,107,107,0.4)' : '0 8px 32px rgba(92,242,198,0.4)' }}>
+            {toast.msg}
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {selectedNode && (
+          <NodeTooltip
+            node={nodes.find((n) => n.id === selectedNode.id) || selectedNode}
+            onClose={() => setSelectedNode(null)}
+            onRecover={(id) => { handleRecover(id); setSelectedNode(null); }}
+            onFault={(id) => { handleInjectFault(id); setSelectedNode(null); }}
+          />
+        )}
       </AnimatePresence>
     </section>
   );

@@ -1,5 +1,6 @@
-import { motion } from 'framer-motion';
-import { Server, Bell, Key, Info, Save, RotateCcw } from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Server, Bell, Key, Info, Save, RotateCcw, Copy, Trash2, Eye, EyeOff } from 'lucide-react';
 import Toggle from '../components/ui/Toggle';
 import { useCluster } from '../context/ClusterContext';
 
@@ -67,28 +68,84 @@ function NotificationPreferences({ notifs, onToggle }) {
   );
 }
 
-function APIKeyManagement({ apiKeys, onGenerateKey }) {
+function APIKeyManagement({ apiKeys, onGenerateKey, onDeleteKey, onRevokeKey }) {
+  const [copiedId, setCopiedId] = useState(null);
+  const [revealedKeys, setRevealedKeys] = useState(new Set());
+
+  const handleCopy = useCallback((key, name) => {
+    const fullKey = key.replace('****', Math.random().toString(36).slice(2, 10));
+    navigator.clipboard.writeText(fullKey).catch(() => {});
+    setCopiedId(name);
+    setTimeout(() => setCopiedId(null), 2000);
+  }, []);
+
+  const toggleReveal = useCallback((name) => {
+    setRevealedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) { next.delete(name); } else { next.add(name); }
+      return next;
+    });
+  }, []);
+
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }} className="panel p-5">
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-2"><Key size={14} style={{ color: 'var(--color-cyan-neon)' }} /><h3 className="panel-title">API Keys</h3></div>
         <button className="filter-btn active" onClick={onGenerateKey}>+ Generate New Key</button>
       </div>
+      <p className="text-[11px] mb-4" style={{ color: 'var(--color-text-subtle)' }}>
+        API keys authenticate external services with the mesh cluster. Copy keys to use in your application config.
+      </p>
       <div className="flex flex-col gap-3">
-        {apiKeys.map((k) => (
-          <div key={k.name} className="panel-soft p-3 flex items-center gap-4">
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-display font-bold" style={{ color: 'var(--color-text-primary)' }}>{k.name}</div>
-              <div className="text-xs font-mono mt-0.5" style={{ color: 'var(--color-text-muted)' }}>{k.key}</div>
+        {apiKeys.map((k) => {
+          const isRevealed = revealedKeys.has(k.name);
+          const displayKey = isRevealed ? k.key.replace('****', Math.random().toString(36).slice(2, 10)) : k.key;
+          return (
+            <div key={k.name + k.created} className="panel-soft p-3">
+              <div className="flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-display font-bold" style={{ color: 'var(--color-text-primary)' }}>{k.name}</div>
+                  <div className="text-xs font-mono mt-0.5 flex items-center gap-2" style={{ color: 'var(--color-text-muted)' }}>
+                    <span className="truncate">{displayKey}</span>
+                  </div>
+                  <div className="flex items-center gap-3 mt-1">
+                    <span className="text-[9px] font-mono" style={{ color: 'var(--color-text-subtle)' }}>Created: {k.created}</span>
+                    <span className="text-[9px] font-mono" style={{ color: 'var(--color-text-subtle)' }}>Last: {k.lastUsed}</span>
+                    <span className="text-[9px] font-display font-bold uppercase tracking-wider" style={{ color: k.status === 'active' ? 'var(--color-teal-neon)' : 'var(--color-error-hot)' }}>{k.status}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <button className="icon-btn" title={isRevealed ? 'Hide key' : 'Reveal key'} onClick={() => toggleReveal(k.name)}>
+                    {isRevealed ? <EyeOff size={13} /> : <Eye size={13} />}
+                  </button>
+                  <button
+                    className="icon-btn"
+                    title="Copy key"
+                    onClick={() => handleCopy(k.key, k.name)}
+                    style={copiedId === k.name ? { color: 'var(--color-teal-neon)' } : undefined}
+                  >
+                    <Copy size={13} />
+                  </button>
+                  {k.status === 'active' && onRevokeKey && (
+                    <button className="icon-btn" title="Revoke key" onClick={() => onRevokeKey(k.name)} style={{ color: 'var(--color-warning)' }}>
+                      <Key size={13} />
+                    </button>
+                  )}
+                  {onDeleteKey && (
+                    <button className="icon-btn" title="Delete key" onClick={() => onDeleteKey(k.name)} style={{ color: 'var(--color-error-hot)' }}>
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
+              </div>
+              {copiedId === k.name && (
+                <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} className="text-[10px] font-display mt-1.5" style={{ color: 'var(--color-teal-neon)' }}>
+                  ✓ Copied to clipboard
+                </motion.div>
+              )}
             </div>
-            <div className="text-right flex-shrink-0">
-              <div className="text-[9px] font-mono" style={{ color: 'var(--color-text-subtle)' }}>Last: {k.lastUsed}</div>
-              <span className="text-[9px] font-display font-bold uppercase tracking-wider" style={{
-                color: k.status === 'active' ? 'var(--color-teal-neon)' : 'var(--color-error-hot)',
-              }}>{k.status}</span>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </motion.div>
   );
@@ -127,6 +184,8 @@ export default function Settings() {
     resetConfig,
     toggleNotification,
     generateApiKey,
+    deleteKey,
+    revokeKey,
   } = useCluster();
 
   return (
@@ -144,7 +203,7 @@ export default function Settings() {
             <NotificationPreferences notifs={notificationPrefs} onToggle={toggleNotification} />
           </div>
           <div className="flex flex-col gap-5">
-            <APIKeyManagement apiKeys={keys} onGenerateKey={generateApiKey} />
+            <APIKeyManagement apiKeys={keys} onGenerateKey={generateApiKey} onDeleteKey={deleteKey} onRevokeKey={revokeKey} />
             <SystemInfo />
           </div>
         </div>

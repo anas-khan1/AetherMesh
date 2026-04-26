@@ -309,6 +309,103 @@ function DemoPlaybook() {
   );
 }
 
+function BeginnerGlossary() {
+  const items = [
+    {
+      term: 'Node',
+      meaning: 'One computer/server in the cluster that stores data pieces and helps process requests.',
+    },
+    {
+      term: 'Shard',
+      meaning: 'A small piece of a file. Big files are split into many shards so storage and transfer are easier.',
+    },
+    {
+      term: 'Parity Shard',
+      meaning: 'A special extra shard used for recovery. If some normal shards are lost, parity helps rebuild missing data.',
+    },
+    {
+      term: 'Replica',
+      meaning: 'A copy of the same shard on another node. More replicas means better availability.',
+    },
+    {
+      term: 'Syncing',
+      meaning: 'The file is still being distributed and copied to enough nodes. It is not fully finished yet.',
+    },
+    {
+      term: 'Synced',
+      meaning: 'The file has completed distribution and has the required copies/parity for recovery.',
+    },
+    {
+      term: 'Fault Tolerance',
+      meaning: 'The system keeps working even if some nodes fail, by using replicas + parity + recovery logic.',
+    },
+  ];
+
+  return (
+    <motion.section
+      variants={fadeUp}
+      initial="hidden"
+      whileInView="visible"
+      viewport={{ once: true }}
+      custom={2}
+      className="panel p-5 md:p-6"
+    >
+      <h2 className="panel-title mb-3" style={{ color: 'var(--color-cyan-primary)' }}>
+        Beginner Glossary (Simple Meanings)
+      </h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {items.map((item) => (
+          <div key={item.term} className="panel-soft p-3">
+            <h3 className="text-sm font-display font-bold mb-1" style={{ color: 'var(--color-cyan-neon)' }}>
+              {item.term}
+            </h3>
+            <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>{item.meaning}</p>
+          </div>
+        ))}
+      </div>
+    </motion.section>
+  );
+}
+
+function SimpleSystemFlow() {
+  const flow = [
+    'User uploads a file.',
+    'System splits file into shards.',
+    'System creates parity shards for recovery.',
+    'Shards are copied to different nodes (replication).',
+    'Status shows syncing until copies are complete.',
+    'Status becomes synced when placement is complete.',
+    'If a node fails, degraded replicas are detected.',
+    'Auto-healing places new replicas on healthy nodes.',
+    'System returns to stable state while staying available.',
+  ];
+
+  return (
+    <motion.section
+      variants={fadeUp}
+      initial="hidden"
+      whileInView="visible"
+      viewport={{ once: true }}
+      custom={3}
+      className="panel p-5 md:p-6"
+    >
+      <h2 className="panel-title mb-3" style={{ color: 'var(--color-cyan-primary)' }}>
+        How This System Works (Very Simple)
+      </h2>
+      <div className="flex flex-col gap-2">
+        {flow.map((step, idx) => (
+          <div key={step} className="panel-soft p-3 flex items-start gap-3">
+            <span className="text-xs font-display font-bold" style={{ color: 'var(--color-teal-neon)' }}>
+              {idx + 1}
+            </span>
+            <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>{step}</p>
+          </div>
+        ))}
+      </div>
+    </motion.section>
+  );
+}
+
 export default function Documentation() {
   const bftSteps = [
     { label: 'Pre-prepare', desc: 'Leader broadcasts a proposed block to validator nodes.' },
@@ -335,6 +432,10 @@ export default function Documentation() {
 
           <div className="grid grid-cols-1 2xl:grid-cols-[1fr_300px] gap-5 items-start">
             <div className="panel p-5 md:p-6 flex flex-col gap-8">
+              <BeginnerGlossary />
+
+              <SimpleSystemFlow />
+
               <motion.section variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }} custom={0}>
                 <div className="flex items-center gap-2 mb-3">
                   <span className="status-dot" />

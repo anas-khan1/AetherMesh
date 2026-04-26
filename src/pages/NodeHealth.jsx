@@ -1,12 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Activity, Server, AlertTriangle, Wifi } from 'lucide-react';
+import { X, Activity, Server, AlertTriangle, Wifi, Eye } from 'lucide-react';
 import NodeBadge from '../components/ui/NodeBadge';
 import { useCluster } from '../context/ClusterContext';
 
 const filters = ['all', 'healthy', 'checking', 'fault'];
 
-function NodeDetailOverlay({ node, onClose }) {
+function NodeDetailOverlay({ node, onClose, onRecoverNode, onInjectFault }) {
   if (!node) return null;
 
   const statusColor = {
@@ -15,6 +15,16 @@ function NodeDetailOverlay({ node, onClose }) {
     loading: 'var(--color-warning)',
     fault: 'var(--color-error-hot)',
   }[node.status] || 'var(--color-cyan-neon)';
+
+  const handleRecover = () => {
+    if (onRecoverNode) onRecoverNode(node.id);
+    onClose();
+  };
+
+  const handleInjectFault = () => {
+    if (onInjectFault) onInjectFault(node.id);
+    onClose();
+  };
 
   return (
     <motion.div
@@ -114,6 +124,40 @@ function NodeDetailOverlay({ node, onClose }) {
             </span>
           </div>
         </div>
+
+        {/* Action buttons inside the popup */}
+        <div className="flex flex-wrap items-center gap-3 mt-6 pt-4" style={{ borderTop: '1px solid rgba(17, 232, 246, 0.1)' }}>
+          {node.status === 'fault' && (
+            <button
+              className="filter-btn active"
+              onClick={handleRecover}
+              style={{
+                background: 'linear-gradient(135deg, rgba(92, 242, 198, 0.15), rgba(17, 232, 246, 0.1))',
+                borderColor: 'var(--color-teal-neon)',
+                color: 'var(--color-teal-neon)',
+              }}
+            >
+              ⚡ Recover {node.id.replace('AE-NODE-', '')}
+            </button>
+          )}
+          {node.status === 'healthy' && (
+            <button
+              className="filter-btn"
+              onClick={handleInjectFault}
+              style={{
+                borderColor: 'rgba(255, 107, 107, 0.4)',
+                color: 'var(--color-error-hot)',
+              }}
+            >
+              ⚠ Inject Fault on {node.id.replace('AE-NODE-', '')}
+            </button>
+          )}
+          {(node.status === 'checking' || node.status === 'loading') && (
+            <span className="text-xs font-mono" style={{ color: 'var(--color-warning)' }}>
+              Node is currently {node.status}...
+            </span>
+          )}
+        </div>
       </motion.div>
     </motion.div>
   );
@@ -123,6 +167,8 @@ export default function NodeHealth() {
   const { nodes, systemMetrics, injectFault, recoverNode } = useCluster();
   const [activeFilter, setActiveFilter] = useState('all');
   const [selectedNode, setSelectedNode] = useState(null);
+  const [detailNode, setDetailNode] = useState(null);
+  const [toast, setToast] = useState(null);
 
   const filteredNodes = useMemo(() => {
     if (activeFilter === 'all') return nodes;
@@ -140,6 +186,40 @@ export default function NodeHealth() {
     [nodes, systemMetrics.meshLatency]
   );
 
+  // Keep selectedNode in sync with live node data
+  const selectedNodeLive = useMemo(() => {
+    if (!selectedNode) return null;
+    return nodes.find((n) => n.id === selectedNode.id) || selectedNode;
+  }, [nodes, selectedNode]);
+
+  const showToast = useCallback((msg, type = 'info') => {
+    setToast({ msg, type, id: Date.now() });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  const handleInjectFault = useCallback((nodeId) => {
+    injectFault(nodeId);
+    setActiveFilter('all');
+    const targetNode = nodeId
+      ? nodes.find((n) => n.id === nodeId)
+      : null;
+    showToast(
+      targetNode
+        ? `⚡ Fault injected on ${targetNode.id}`
+        : '⚡ Random fault injected — check the grid!',
+      'fault'
+    );
+  }, [injectFault, nodes, showToast]);
+
+  const handleRecover = useCallback((nodeId) => {
+    recoverNode(nodeId);
+    showToast(`✅ ${nodeId} recovered successfully`, 'recover');
+  }, [recoverNode, showToast]);
+
+  const handleNodeClick = useCallback((node) => {
+    setSelectedNode(node);
+  }, []);
+
   return (
     <section className="section-shell" style={{ paddingTop: '1.5rem' }}>
       <div className="shell">
@@ -152,7 +232,7 @@ export default function NodeHealth() {
           <p className="kicker mb-2">Node Health</p>
           <h1 className="section-title">Real-Time Mesh Integrity</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--color-text-muted)' }}>
-            Monitoring {stats.total} distributed nodes with instant status overlays and failure diagnostics.
+            Monitoring {stats.total} distributed nodes. Pick any node below, fail it, then recover it to see fault tolerance in action.
           </p>
         </motion.header>
 
@@ -217,12 +297,50 @@ export default function NodeHealth() {
           transition={{ delay: 0.3 }}
           className="flex flex-wrap items-center gap-2 mb-4"
         >
-          <button className="filter-btn" onClick={() => injectFault()}>Inject Random Fault</button>
-          {selectedNode?.status === 'fault' && (
-            <button className="filter-btn active" onClick={() => recoverNode(selectedNode.id)}>
+          <button className="filter-btn" onClick={() => handleInjectFault()}>Inject Random Fault</button>
+          {selectedNodeLive?.status === 'fault' && (
+            <button className="filter-btn active" onClick={() => handleRecover(selectedNodeLive.id)}>
               Recover Selected Node
             </button>
           )}
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.31 }}
+          className="panel p-4 mb-4"
+        >
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h3 className="panel-title">Node Playground (Beginner Demo)</h3>
+              <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                Step 1: click any node tile. Step 2: inject fault. Step 3: recover node and show system stability.
+              </p>
+            </div>
+            {selectedNodeLive ? (
+              <div className="flex flex-wrap gap-2">
+                {selectedNodeLive.status !== 'fault' && (
+                  <button className="filter-btn" onClick={() => handleInjectFault(selectedNodeLive.id)}>
+                    Fault {selectedNodeLive.id.replace('AE-NODE-', '')}
+                  </button>
+                )}
+                {selectedNodeLive.status === 'fault' && (
+                  <button className="filter-btn active" onClick={() => handleRecover(selectedNodeLive.id)}>
+                    Recover {selectedNodeLive.id.replace('AE-NODE-', '')}
+                  </button>
+                )}
+                <button className="filter-btn" onClick={() => setDetailNode(selectedNodeLive)}>
+                  <Eye size={12} style={{ marginRight: '4px', display: 'inline' }} />
+                  Details
+                </button>
+              </div>
+            ) : (
+              <span className="text-xs" style={{ color: 'var(--color-text-subtle)' }}>
+                No node selected yet
+              </span>
+            )}
+          </div>
         </motion.div>
 
         <motion.div
@@ -241,8 +359,8 @@ export default function NodeHealth() {
               >
                 <NodeBadge
                   node={node}
-                  isSelected={selectedNode?.id === node.id}
-                  onClick={setSelectedNode}
+                  isSelected={selectedNodeLive?.id === node.id}
+                  onClick={handleNodeClick}
                 />
               </motion.div>
             ))}
@@ -265,9 +383,40 @@ export default function NodeHealth() {
         </motion.div>
       </div>
 
+      {/* Toast notification */}
       <AnimatePresence>
-        {selectedNode && (
-          <NodeDetailOverlay node={selectedNode} onClose={() => setSelectedNode(null)} />
+        {toast && (
+          <motion.div
+            key={toast.id}
+            initial={{ opacity: 0, y: 40, x: '-50%' }}
+            animate={{ opacity: 1, y: 0, x: '-50%' }}
+            exit={{ opacity: 0, y: 20, x: '-50%' }}
+            className="fixed bottom-6 left-1/2 z-[60] px-5 py-3 rounded-xl font-display text-sm font-bold tracking-wide"
+            style={{
+              background: toast.type === 'fault'
+                ? 'linear-gradient(135deg, rgba(255, 107, 107, 0.9), rgba(200, 50, 50, 0.95))'
+                : 'linear-gradient(135deg, rgba(92, 242, 198, 0.9), rgba(17, 232, 246, 0.95))',
+              color: toast.type === 'fault' ? '#fff' : '#041329',
+              boxShadow: toast.type === 'fault'
+                ? '0 8px 32px rgba(255, 107, 107, 0.4)'
+                : '0 8px 32px rgba(92, 242, 198, 0.4)',
+              backdropFilter: 'blur(12px)',
+            }}
+          >
+            {toast.msg}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Node detail popup */}
+      <AnimatePresence>
+        {detailNode && (
+          <NodeDetailOverlay
+            node={nodes.find((n) => n.id === detailNode.id) || detailNode}
+            onClose={() => setDetailNode(null)}
+            onRecoverNode={(id) => { handleRecover(id); setDetailNode(null); }}
+            onInjectFault={(id) => { handleInjectFault(id); setDetailNode(null); }}
+          />
         )}
       </AnimatePresence>
     </section>

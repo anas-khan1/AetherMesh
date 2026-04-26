@@ -169,7 +169,7 @@ function markFaultInPlacements(currentPlacements, failedNodeId) {
   return next;
 }
 
-function healDegradedShards(currentPlacements, allNodes) {
+function healDegradedShards(currentPlacements, allNodes, targetFileName = null) {
   const healthyNodes = allNodes.filter((n) => n.status === 'healthy');
   if (healthyNodes.length === 0) {
     return { placements: currentPlacements, events: [] };
@@ -179,6 +179,9 @@ function healDegradedShards(currentPlacements, allNodes) {
   const events = [];
 
   Object.values(next).forEach((placement) => {
+    if (targetFileName && placement.fileName !== targetFileName) {
+      return;
+    }
     placement.shards.forEach((shard) => {
       const degradedReplicas = shard.replicas.filter((r) => r.status === 'degraded');
       degradedReplicas.forEach((replica) => {
@@ -470,6 +473,16 @@ export function ClusterProvider({ children }) {
       { type: 'recover', msg: `Recovery completed for ${nodeId}`, time: 'just now', icon: 'check' },
       ...prev,
     ].slice(0, 10));
+    setFileActivity((prev) => [
+      {
+        action: 'RECOVER',
+        file: '/cluster/shards',
+        node: nodeId,
+        time: 'just now',
+        status: 'success',
+      },
+      ...prev,
+    ].slice(0, 20));
     setSimulationFeed((prev) => [
       {
         id: `SIM-${Date.now()}`,
@@ -555,6 +568,100 @@ export function ClusterProvider({ children }) {
       status: 'active',
     };
     setKeys((prev) => [newKey, ...prev]);
+  }
+
+  function deleteKey(keyName) {
+    setKeys((prev) => prev.filter((k) => k.name !== keyName));
+  }
+
+  function revokeKey(keyName) {
+    setKeys((prev) => prev.map((k) => (k.name === keyName ? { ...k, status: 'revoked' } : k)));
+  }
+
+  function runFaultTolerance(targetFileName = null) {
+    let healedEvents = [];
+
+    setSimulationFeed((prev) => [
+      {
+        id: `SIM-${Date.now()}-repair-start`,
+        level: 'RECOVERY',
+        message: targetFileName
+          ? `Manual repair started for ${targetFileName}`
+          : 'Manual repair started for degraded replicas and faulty nodes',
+        time: nowLabel(),
+      },
+      ...prev,
+    ].slice(0, 30));
+
+    setShardPlacements((prevPlacements) => {
+      const healing = healDegradedShards(prevPlacements, nodesRef.current, targetFileName);
+      healedEvents = healing.events;
+      return healing.placements;
+    });
+
+    if (healedEvents.length > 0) {
+      const byFile = new Set();
+      healedEvents.forEach((event) => {
+        byFile.add(event.fileName);
+        setFileActivity((prevAct) => [
+          {
+            action: 'REPLICATE',
+            file: `/uploads/${event.fileName}`,
+            node: event.nodeId,
+            time: 'just now',
+            status: 'success',
+          },
+          ...prevAct,
+        ].slice(0, 20));
+      });
+
+      byFile.forEach((fileName) => {
+        setFileTree((prevTree) => updateFileInTree(prevTree, fileName, (file) => {
+          file.status = 'synced';
+          file.modified = toTimestamp();
+        }));
+      });
+
+      setSimulationFeed((prev) => [
+        {
+          id: `SIM-${Date.now()}-repair-done`,
+          level: 'HEAL',
+          message: `Fault tolerance completed: ${healedEvents.length} replica placements repaired`,
+          time: nowLabel(),
+        },
+        ...prev,
+      ].slice(0, 30));
+    }
+
+    const faultyIds = nodesRef.current.filter((n) => n.status === 'fault').map((n) => n.id);
+    if (faultyIds.length > 0) {
+      setNodes((prevNodes) => prevNodes.map((node) => (
+        faultyIds.includes(node.id)
+          ? { ...node, status: 'checking' }
+          : node
+      )));
+
+      setTimeout(() => {
+        setNodes((prevNodes) => prevNodes.map((node) => {
+          if (!faultyIds.includes(node.id)) return node;
+          return {
+            ...node,
+            status: 'healthy',
+            cpu: clamp(node.cpu - 20, 8, 72),
+            errorRate: clamp(node.errorRate - 1.5, 0.01, 2),
+          };
+        }));
+        setSimulationFeed((prev) => [
+          {
+            id: `SIM-${Date.now()}-nodes-restored`,
+            level: 'RECOVERY',
+            message: `Nodes restored: ${faultyIds.map((id) => id.replace('AE-NODE-', '')).join(', ')}`,
+            time: nowLabel(),
+          },
+          ...prev,
+        ].slice(0, 30));
+      }, 1200);
+    }
   }
 
   useEffect(() => {
@@ -665,45 +772,9 @@ export function ClusterProvider({ children }) {
         return next.filter((transfer) => transfer.progress < 100);
       });
 
-      if (config.autoHealingEnabled) {
-        setShardPlacements((prevPlacements) => {
-          const healing = healDegradedShards(prevPlacements, nodesRef.current);
-          if (healing.events.length > 0) {
-            const healed = healing.events.slice(0, 3);
-            healed.forEach((event) => {
-              setFileActivity((prevAct) => [
-                {
-                  action: 'REPLICATE',
-                  file: `/uploads/${event.fileName}`,
-                  node: event.nodeId,
-                  time: 'just now',
-                  status: 'success',
-                },
-                ...prevAct,
-              ].slice(0, 20));
-              setSimulationFeed((prevFeed) => [
-                {
-                  id: `SIM-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
-                  level: 'HEAL',
-                  message: `${event.fileName} ${event.shardId} re-replicated to ${event.nodeId}`,
-                  time: nowLabel(),
-                },
-                ...prevFeed,
-              ].slice(0, 30));
-            });
-          }
-          return healing.placements;
-        });
-      }
-
       if (Math.random() < 0.08) {
         const randomHealthy = nodesRef.current.find((n) => n.status === 'healthy');
         if (randomHealthy) injectFault(randomHealthy.id);
-      }
-
-      if (config.autoHealingEnabled && Math.random() < 0.2) {
-        const faulty = nodesRef.current.find((n) => n.status === 'fault');
-        if (faulty) recoverNode(faulty.id);
       }
     }, 2600);
 
@@ -732,12 +803,15 @@ export function ClusterProvider({ children }) {
     recoveries,
     injectFault,
     recoverNode,
+    runFaultTolerance,
     requestDiagnostic,
     uploadFile,
     updateConfig,
     resetConfig,
     toggleNotification,
     generateApiKey,
+    deleteKey,
+    revokeKey,
   };
 
   return <ClusterContext.Provider value={value}>{children}</ClusterContext.Provider>;
