@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { Shield, Lock, Key, Eye, AlertTriangle, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { Shield, Lock, Key, Eye, Clock } from 'lucide-react';
 import ProgressRing from '../components/ui/ProgressRing';
 import DataTable from '../components/ui/DataTable';
 import { securityOverview, certificates, securityAuditLog, accessControlEntries } from '../data/mockData';
+import { useCluster } from '../context/ClusterContext';
 
 const statusBadge = (status) => {
   const colors = { valid: 'var(--color-teal-neon)', expiring: 'var(--color-warning)', expired: 'var(--color-error-hot)', revoked: 'var(--color-error-hot)' };
@@ -16,7 +17,9 @@ const actionColor = (action) => {
   return map[action] || 'var(--color-text-muted)';
 };
 
-function EncryptionOverview() {
+function EncryptionOverview({ liveConfig }) {
+  const encryptionStatus = liveConfig?.encryptionEnabled ? 'Enabled' : 'Disabled';
+
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="panel p-5">
       <div className="flex items-center gap-2 mb-4">
@@ -29,12 +32,17 @@ function EncryptionOverview() {
           { label: 'Key Rotation', value: securityOverview.keyRotation },
           { label: 'TLS Version', value: securityOverview.tlsVersion },
           { label: 'Last Audit', value: securityOverview.lastAudit },
-          { label: 'Active Sessions', value: securityOverview.activeSessions },
+          { label: 'E2E Encryption', value: encryptionStatus },
           { label: 'Threat Level', value: securityOverview.threatLevel },
         ].map((m) => (
           <div key={m.label} className="panel-soft p-3">
             <div className="text-[10px] font-display tracking-wider uppercase" style={{ color: 'var(--color-text-muted)' }}>{m.label}</div>
-            <div className="text-sm font-display font-bold mt-1" style={{ color: m.label === 'Threat Level' && m.value === 'Low' ? 'var(--color-teal-neon)' : 'var(--color-cyan-primary)' }}>{m.value}</div>
+            <div className="text-sm font-display font-bold mt-1" style={{
+              color: m.label === 'Threat Level' && m.value === 'Low' ? 'var(--color-teal-neon)'
+                : m.label === 'E2E Encryption' && m.value === 'Enabled' ? 'var(--color-teal-neon)'
+                  : m.label === 'E2E Encryption' && m.value === 'Disabled' ? 'var(--color-error-hot)'
+                    : 'var(--color-cyan-primary)'
+            }}>{m.value}</div>
           </div>
         ))}
       </div>
@@ -111,12 +119,31 @@ function AuditLog() {
 }
 
 export default function Security() {
+  const { nodes, config, faultLogs } = useCluster();
+
+  const liveStats = useMemo(() => {
+    const activeNodes = nodes.filter((n) => n.status !== 'fault').length;
+    const faultCount = nodes.filter((n) => n.status === 'fault').length;
+    const activeSessions = 300 + activeNodes * 3;
+    const unresolved = faultLogs.filter((f) => !f.resolved).length;
+    const threatLevel = faultCount > 5 ? 'High' : faultCount > 2 ? 'Medium' : 'Low';
+    const complianceScore = Math.max(85, 100 - (unresolved * 0.4) - (faultCount * 0.8)).toFixed(1);
+
+    return {
+      activeSessions,
+      threatLevel,
+      complianceScore: Number(complianceScore),
+    };
+  }, [nodes, faultLogs]);
+
   const statCards = [
-    { icon: Shield, label: 'Compliance', value: `${securityOverview.complianceScore}%`, color: 'var(--color-cyan-neon)' },
-    { icon: Lock, label: 'Encryption', value: securityOverview.encryptionAlgo, color: 'var(--color-teal-neon)' },
+    { icon: Shield, label: 'Compliance', value: `${liveStats.complianceScore}%`, color: 'var(--color-cyan-neon)' },
+    { icon: Lock, label: 'Encryption', value: config.encryptionEnabled ? securityOverview.encryptionAlgo : 'Disabled', color: config.encryptionEnabled ? 'var(--color-teal-neon)' : 'var(--color-error-hot)' },
     { icon: Key, label: 'Cert Authority', value: securityOverview.certAuthority, color: 'var(--color-cyan-primary)' },
-    { icon: Eye, label: 'Sessions', value: securityOverview.activeSessions, color: 'var(--color-warning)' },
+    { icon: Eye, label: 'Sessions', value: liveStats.activeSessions, color: 'var(--color-warning)' },
   ];
+
+  const threatColor = liveStats.threatLevel === 'Low' ? 'var(--color-teal-neon)' : liveStats.threatLevel === 'Medium' ? 'var(--color-warning)' : 'var(--color-error-hot)';
 
   return (
     <section className="section-shell" style={{ paddingTop: '1.5rem' }}>
@@ -128,7 +155,14 @@ export default function Security() {
               <h1 className="section-title">Security & Encryption</h1>
               <p className="text-sm mt-1" style={{ color: 'var(--color-text-muted)' }}>Quantum-safe encryption, certificate management, and access control across the mesh.</p>
             </div>
-            <div className="status-pill"><span className="status-dot" />Threat: {securityOverview.threatLevel}</div>
+            <div className="status-pill" style={{
+              borderColor: `${threatColor}55`,
+              backgroundColor: `${threatColor}12`,
+              color: threatColor,
+            }}>
+              <span className="w-[0.38rem] h-[0.38rem] rounded-full" style={{ backgroundColor: threatColor }} />
+              Threat: {liveStats.threatLevel}
+            </div>
           </div>
         </motion.header>
 
@@ -149,9 +183,9 @@ export default function Security() {
           <div className="flex flex-col gap-5">
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }} className="panel p-5 flex flex-col items-center">
               <h3 className="panel-title mb-4 self-start">Compliance Score</h3>
-              <ProgressRing value={securityOverview.complianceScore} size={120} stroke={8} label={`${securityOverview.complianceScore}%`} sublabel="Compliance" />
+              <ProgressRing value={liveStats.complianceScore} size={120} stroke={8} label={`${liveStats.complianceScore}%`} sublabel="Compliance" />
             </motion.div>
-            <EncryptionOverview />
+            <EncryptionOverview liveConfig={config} />
             <AuditLog />
           </div>
         </div>

@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import { ArrowUpRight, Star, Grid3x3, ShieldCheck, CheckCircle2, Server, Database, Shield, Zap, Globe, Lock } from 'lucide-react';
 import GlowButton, { GhostButton } from '../components/ui/GlowButton';
 import CodeBlock from '../components/ui/CodeBlock';
@@ -95,7 +96,7 @@ function MeshVisualization() {
           ))}
 
           <text x="200" y="344" textAnchor="middle" fill="#8EA5BD" fontSize="10" fontFamily="var(--font-display)" letterSpacing="0.1em">
-            6 regions • 130 nodes • fault tolerant
+            6 regions • live topology • fault tolerant
           </text>
         </svg>
       </div>
@@ -263,10 +264,10 @@ export default function Landing() {
                 </div>
                 <h3 className="text-base font-display font-bold" style={{ color: 'var(--color-text-primary)' }}>{f.title}</h3>
                 <p className="text-sm leading-relaxed flex-1" style={{ color: 'var(--color-text-muted)' }}>{f.desc}</p>
-                <div className="inline-flex items-center gap-1 text-xs uppercase tracking-[0.11em] font-display" style={{ color: 'var(--color-cyan-neon)' }}>
+                <Link to={f.to} className="inline-flex items-center gap-1 text-xs uppercase tracking-[0.11em] font-display no-underline" style={{ color: 'var(--color-cyan-neon)' }}>
                   {f.link}
                   <ArrowUpRight size={12} />
-                </div>
+                </Link>
               </motion.article>
             ))}
           </div>

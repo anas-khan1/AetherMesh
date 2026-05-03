@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Gauge, ArrowUpRight, ArrowDownRight, Minus, Zap, HardDrive, Network, BarChart3 } from 'lucide-react';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
-import { throughputTimeSeries, iopsDistribution, bandwidthByRegion, topConsumers, latencyDistribution } from '../data/mockData';
+import { bandwidthByRegion, topConsumers, latencyDistribution } from '../data/mockData';
 import { useCluster } from '../context/ClusterContext';
 
 const trendIcons = { up: ArrowUpRight, down: ArrowDownRight, stable: Minus };

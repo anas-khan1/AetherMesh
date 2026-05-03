@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bell, Settings, User, Menu, X } from 'lucide-react';
+import { Bell, Settings, User, Menu, X, Clock } from 'lucide-react';
 
 const navLinks = [
   { to: '/', label: 'Home' },
@@ -16,8 +16,31 @@ const navLinks = [
   { to: '/settings', label: 'Settings' },
 ];
 
+function LiveClock() {
+  const [time, setTime] = useState(() => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <span
+      className="hidden lg:flex items-center gap-1.5 text-[10px] font-mono px-2 py-1 rounded-md"
+      style={{ color: 'var(--color-text-subtle)', backgroundColor: 'rgba(17,232,246,0.04)', border: '1px solid rgba(17,232,246,0.08)' }}
+      title="System clock"
+    >
+      <Clock size={10} style={{ opacity: 0.6 }} />
+      {time}
+    </span>
+  );
+}
+
 export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const navigate = useNavigate();
 
   return (
     <motion.header
@@ -51,11 +74,17 @@ export default function Navbar() {
         </nav>
 
         <div className="flex items-center gap-2">
+          <LiveClock />
           <div className="nav-actions-desktop flex items-center gap-2">
             <button className="icon-btn" title="Notifications" aria-label="Notifications">
               <Bell size={15} />
             </button>
-            <button className="icon-btn" title="Settings" aria-label="Settings">
+            <button
+              className="icon-btn"
+              title="Settings"
+              aria-label="Settings"
+              onClick={() => navigate('/settings')}
+            >
               <Settings size={15} />
             </button>
             <div

@@ -273,10 +273,20 @@ export function ClusterProvider({ children }) {
     return initial;
   });
   const nodesRef = useRef(nodes);
+  const activeTransfersRef = useRef(activeTransfers);
+  const shardPlacementsRef = useRef(shardPlacements);
 
   useEffect(() => {
     nodesRef.current = nodes;
   }, [nodes]);
+
+  useEffect(() => {
+    activeTransfersRef.current = activeTransfers;
+  }, [activeTransfers]);
+
+  useEffect(() => {
+    shardPlacementsRef.current = shardPlacements;
+  }, [shardPlacements]);
 
   useEffect(() => {
     persistValue('aether.config', config);
@@ -409,7 +419,7 @@ export function ClusterProvider({ children }) {
       nodeId: faultNode.id,
       severity,
       message: `${faultNode.id} in ${faultNode.region} stopped acknowledging heartbeat packets`,
-      recovery: config.autoHealingEnabled ? 'Auto-healing started: redistributing shards' : 'Awaiting manual recovery action',
+      recovery: 'Auto-healing initiated: recovery in ~6s',
       region: faultNode.region,
       resolved: false,
     });
@@ -419,26 +429,66 @@ export function ClusterProvider({ children }) {
       { type: 'fault', msg: `Fault injected on ${faultNode.id}`, time: 'just now', icon: 'alert' },
       ...prev,
     ].slice(0, 10));
-    setShardPlacements((prev) => markFaultInPlacements(prev, faultNode.id));
+    const currentPlacements = shardPlacementsRef.current;
+    const marked = markFaultInPlacements(currentPlacements, faultNode.id);
+    setShardPlacements(marked);
+
+    // Find affected files and log ONE consolidated entry
+    const affectedFiles = [];
+    Object.values(marked).forEach((placement) => {
+      const hasDegraded = placement.shards.some((s) => s.replicas.some((r) => r.nodeId === faultNode.id && r.status === 'degraded'));
+      if (hasDegraded) affectedFiles.push(placement.fileName);
+    });
+
+    const label = affectedFiles.length > 0
+      ? `/uploads/${affectedFiles[0]}`
+      : '/cluster/shards';
+    const detail = affectedFiles.length > 1 ? `${affectedFiles.length} files affected` : undefined;
+
+    setFileActivity((prev) => [
+      { action: 'FAULT', file: label, node: faultNode.id, time: 'just now', status: 'pending', detail },
+      ...prev,
+    ].slice(0, 20));
     setSimulationFeed((prev) => [
       {
         id: `SIM-${Date.now()}`,
         level: 'FAULT',
-        message: `Node failure on ${faultNode.id}: affected shard replicas marked degraded`,
+        message: `Node failure on ${faultNode.id}: affected shard replicas marked degraded — auto-recovery in 6s`,
         time: nowLabel(),
       },
       ...prev,
     ].slice(0, 30));
-    setFileActivity((prev) => [
-      {
-        action: 'FAULT',
-        file: '/cluster/shards',
-        node: faultNode.id,
-        time: 'just now',
-        status: 'pending',
-      },
-      ...prev,
-    ].slice(0, 20));
+
+    // AUTO-RECOVERY: automatically heal after 6 seconds (demonstrates fault tolerance)
+    const failedId = faultNode.id;
+    setTimeout(() => {
+      // Check if node is still in fault state (user might have manually recovered it)
+      const stillFaulty = nodesRef.current.find((n) => n.id === failedId && n.status === 'fault');
+      if (!stillFaulty) return;
+
+      setSimulationFeed((prev) => [
+        {
+          id: `SIM-${Date.now()}-auto-heal-start`,
+          level: 'RECOVERY',
+          message: `Auto-healing triggered for ${failedId}: redistributing degraded shards`,
+          time: nowLabel(),
+        },
+        ...prev,
+      ].slice(0, 30));
+
+      // Transition to "checking" first
+      setNodes((prev) => prev.map((n) => n.id === failedId ? { ...n, status: 'checking' } : n));
+
+      // After 2 more seconds, fully recover
+      setTimeout(() => {
+        runFaultTolerance();
+
+        setDashboardActivity((prev) => [
+          { type: 'recover', msg: `Auto-healed: ${failedId} restored`, time: 'just now', icon: 'check' },
+          ...prev,
+        ].slice(0, 10));
+      }, 2000);
+    }, 6000);
   }
 
   function recoverNode(nodeId) {
@@ -473,16 +523,24 @@ export function ClusterProvider({ children }) {
       { type: 'recover', msg: `Recovery completed for ${nodeId}`, time: 'just now', icon: 'check' },
       ...prev,
     ].slice(0, 10));
+
+    // Find actual files affected by this node and log ONE recovery entry
+    const affectedFiles = [];
+    Object.values(shardPlacementsRef.current).forEach((placement) => {
+      const hasDegraded = placement.shards.some((s) => s.replicas.some((r) => r.nodeId === nodeId && r.status === 'degraded'));
+      if (hasDegraded) affectedFiles.push(placement.fileName);
+    });
+
+    const label = affectedFiles.length > 0
+      ? `/uploads/${affectedFiles[0]}`
+      : '/cluster/shards';
+    const detail = affectedFiles.length > 1 ? `${affectedFiles.length} files recovered` : undefined;
+
     setFileActivity((prev) => [
-      {
-        action: 'RECOVER',
-        file: '/cluster/shards',
-        node: nodeId,
-        time: 'just now',
-        status: 'success',
-      },
+      { action: 'RECOVER', file: label, node: nodeId, time: 'just now', status: 'success', detail },
       ...prev,
     ].slice(0, 20));
+
     setSimulationFeed((prev) => [
       {
         id: `SIM-${Date.now()}`,
@@ -593,28 +651,17 @@ export function ClusterProvider({ children }) {
       ...prev,
     ].slice(0, 30));
 
-    setShardPlacements((prevPlacements) => {
-      const healing = healDegradedShards(prevPlacements, nodesRef.current, targetFileName);
-      healedEvents = healing.events;
-      return healing.placements;
-    });
+    const healing = healDegradedShards(shardPlacementsRef.current, nodesRef.current, targetFileName);
+    healedEvents = healing.events;
+    setShardPlacements(healing.placements);
 
     if (healedEvents.length > 0) {
       const byFile = new Set();
       healedEvents.forEach((event) => {
         byFile.add(event.fileName);
-        setFileActivity((prevAct) => [
-          {
-            action: 'REPLICATE',
-            file: `/uploads/${event.fileName}`,
-            node: event.nodeId,
-            time: 'just now',
-            status: 'success',
-          },
-          ...prevAct,
-        ].slice(0, 20));
       });
 
+      // Mark all healed files as synced
       byFile.forEach((fileName) => {
         setFileTree((prevTree) => updateFileInTree(prevTree, fileName, (file) => {
           file.status = 'synced';
@@ -622,11 +669,22 @@ export function ClusterProvider({ children }) {
         }));
       });
 
+      // Log ONE REPLICATE + ONE RECOVER entry (not one per file)
+      const fileArr = [...byFile];
+      const recoverLabel = `/uploads/${fileArr[0]}`;
+      const detail = fileArr.length > 1 ? `${fileArr.length} files healed` : undefined;
+
+      setFileActivity((prevAct) => [
+        { action: 'RECOVER', file: recoverLabel, node: 'AUTO-HEAL', time: 'just now', status: 'success', detail },
+        { action: 'REPLICATE', file: `${healedEvents.length} shard(s) redistributed`, node: 'AUTO-HEAL', time: 'just now', status: 'success' },
+        ...prevAct,
+      ].slice(0, 20));
+
       setSimulationFeed((prev) => [
         {
           id: `SIM-${Date.now()}-repair-done`,
           level: 'HEAL',
-          message: `Fault tolerance completed: ${healedEvents.length} replica placements repaired`,
+          message: `Fault tolerance completed: ${healedEvents.length} replicas repaired across ${byFile.size} file(s)`,
           time: nowLabel(),
         },
         ...prev,
@@ -727,52 +785,53 @@ export function ClusterProvider({ children }) {
         };
       }));
 
-      setActiveTransfers((prev) => {
-        const next = prev.map((transfer) => {
-          const increment = Math.floor(Math.random() * 22 + 10);
-          const progress = clamp(transfer.progress + increment, 0, 100);
-          const uploadedShards = Math.floor((progress / 100) * transfer.shards);
-          return {
-            ...transfer,
-            progress,
-            uploadedShards,
-            speed: progress >= 100 ? 'Complete' : `${Math.floor(Math.random() * 140 + 80)} MB/s`,
-          };
-        });
-
-        const completed = next.filter((t) => t.progress >= 100);
-        if (completed.length > 0) {
-          completed.forEach((transfer) => {
-            setFileTree((prevTree) => updateFileInTree(prevTree, transfer.fileName, (file) => {
-              file.status = 'synced';
-              file.modified = toTimestamp();
-            }));
-            setFileActivity((prevAct) => [
-              {
-                action: 'SYNC',
-                file: `/uploads/${transfer.fileName}`,
-                node: randomItem(nodesRef.current).id,
-                time: 'just now',
-                status: 'success',
-              },
-              ...prevAct,
-            ].slice(0, 20));
-            setSimulationFeed((prevFeed) => [
-              {
-                id: `SIM-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
-                level: 'SYNC',
-                message: `${transfer.fileName} fully replicated and marked synced`,
-                time: nowLabel(),
-              },
-              ...prevFeed,
-            ].slice(0, 30));
-          });
-        }
-
-        return next.filter((transfer) => transfer.progress < 100);
+      const currentTransfers = activeTransfersRef.current;
+      const nextTransfers = currentTransfers.map((transfer) => {
+        const increment = Math.floor(Math.random() * 22 + 10);
+        const progress = clamp(transfer.progress + increment, 0, 100);
+        const uploadedShards = Math.floor((progress / 100) * transfer.shards);
+        return {
+          ...transfer,
+          progress,
+          uploadedShards,
+          speed: progress >= 100 ? 'Complete' : `${Math.floor(Math.random() * 140 + 80)} MB/s`,
+        };
       });
 
-      if (Math.random() < 0.08) {
+      const completed = nextTransfers.filter((t) => t.progress >= 100);
+      if (completed.length > 0) {
+        completed.forEach((transfer) => {
+          setFileTree((prevTree) => updateFileInTree(prevTree, transfer.fileName, (file) => {
+            file.status = 'synced';
+            file.modified = toTimestamp();
+          }));
+          setFileActivity((prevAct) => [
+            {
+              action: 'SYNC',
+              file: `/uploads/${transfer.fileName}`,
+              node: randomItem(nodesRef.current).id,
+              time: 'just now',
+              status: 'success',
+            },
+            ...prevAct,
+          ].slice(0, 20));
+          setSimulationFeed((prevFeed) => [
+            {
+              id: `SIM-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+              level: 'SYNC',
+              message: `${transfer.fileName} fully replicated and marked synced`,
+              time: nowLabel(),
+            },
+            ...prevFeed,
+          ].slice(0, 30));
+        });
+      }
+
+      setActiveTransfers(nextTransfers.filter((transfer) => transfer.progress < 100));
+
+      // Random fault: only 2% chance AND only if no node is already in fault/checking (prevents cascading duplicates)
+      const hasPendingFault = nodesRef.current.some((n) => n.status === 'fault' || n.status === 'checking');
+      if (!hasPendingFault && Math.random() < 0.02) {
         const randomHealthy = nodesRef.current.find((n) => n.status === 'healthy');
         if (randomHealthy) injectFault(randomHealthy.id);
       }

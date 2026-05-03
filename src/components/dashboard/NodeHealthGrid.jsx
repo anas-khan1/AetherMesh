@@ -5,7 +5,6 @@ export default function NodeHealthGrid({ nodes, selectedNode, onSelectNode }) {
   const gridNodes = nodes.slice(0, 20);
 
   const statusCounts = {
-    leader: gridNodes.filter(n => n.id === 'AE-NODE-X001').length,
     healthy: gridNodes.filter(n => n.status === 'healthy').length,
     checking: gridNodes.filter(n => n.status === 'checking' || n.status === 'loading').length,
     fault: gridNodes.filter(n => n.status === 'fault').length,
@@ -38,7 +37,6 @@ export default function NodeHealthGrid({ nodes, selectedNode, onSelectNode }) {
       {/* Legend */}
       <div className="flex flex-wrap items-center gap-3 mt-3">
         {[
-          { label: 'Leader', color: 'var(--color-cyan-neon)', count: statusCounts.leader },
           { label: 'Healthy', color: 'var(--color-cyan-neon)', count: statusCounts.healthy },
           { label: 'Checking', color: 'var(--color-warning)', count: statusCounts.checking },
           { label: 'Fault', color: 'var(--color-error-hot)', count: statusCounts.fault },

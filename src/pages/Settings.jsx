@@ -1,10 +1,41 @@
 import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Server, Bell, Key, Info, Save, RotateCcw, Copy, Trash2, Eye, EyeOff } from 'lucide-react';
+import { Server, Bell, Key, Info, Save, RotateCcw, Copy, Trash2, Eye, EyeOff, CheckCircle2 } from 'lucide-react';
 import Toggle from '../components/ui/Toggle';
 import { useCluster } from '../context/ClusterContext';
 
-function ClusterConfiguration({ config, onConfigChange, onReset }) {
+function SettingsToast({ toast }) {
+  return (
+    <AnimatePresence>
+      {toast && (
+        <motion.div
+          key={toast.id}
+          initial={{ opacity: 0, y: 40, x: '-50%' }}
+          animate={{ opacity: 1, y: 0, x: '-50%' }}
+          exit={{ opacity: 0, y: 20, x: '-50%' }}
+          className="fixed bottom-6 left-1/2 z-[60] px-5 py-3 rounded-xl font-display text-sm font-bold tracking-wide flex items-center gap-2"
+          style={{
+            background: toast.type === 'error'
+              ? 'linear-gradient(135deg, rgba(255,107,107,0.9), rgba(200,50,50,0.95))'
+              : toast.type === 'warning'
+                ? 'linear-gradient(135deg, rgba(255,183,77,0.9), rgba(220,150,30,0.95))'
+                : 'linear-gradient(135deg, rgba(92,242,198,0.9), rgba(17,232,246,0.95))',
+            color: toast.type === 'error' ? '#fff' : '#041329',
+            boxShadow: toast.type === 'error'
+              ? '0 8px 32px rgba(255,107,107,0.4)'
+              : '0 8px 32px rgba(92,242,198,0.4)',
+            backdropFilter: 'blur(12px)',
+          }}
+        >
+          <CheckCircle2 size={16} />
+          {toast.msg}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function ClusterConfiguration({ config, onConfigChange, onReset, onSave }) {
   const configItems = [
     { key: 'replicationFactor', label: 'Replication Factor', type: 'number' },
     { key: 'shardParity', label: 'Shard Parity', type: 'number' },
@@ -28,7 +59,7 @@ function ClusterConfiguration({ config, onConfigChange, onReset }) {
         <div className="flex items-center gap-2"><Server size={14} style={{ color: 'var(--color-cyan-neon)' }} /><h3 className="panel-title">Cluster Configuration</h3></div>
         <div className="flex items-center gap-2">
           <button className="icon-btn" title="Reset to defaults" onClick={onReset}><RotateCcw size={13} /></button>
-          <button className="filter-btn active flex items-center gap-1.5"><Save size={11} />Save Changes</button>
+          <button className="filter-btn active flex items-center gap-1.5" onClick={onSave}><Save size={11} />Save Changes</button>
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
@@ -55,7 +86,6 @@ function ClusterConfiguration({ config, onConfigChange, onReset }) {
 }
 
 function NotificationPreferences({ notifs, onToggle }) {
-
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="panel p-5">
       <div className="flex items-center gap-2 mb-5"><Bell size={14} style={{ color: 'var(--color-cyan-neon)' }} /><h3 className="panel-title">Notification Preferences</h3></div>
@@ -154,7 +184,7 @@ function APIKeyManagement({ apiKeys, onGenerateKey, onDeleteKey, onRevokeKey }) 
 function SystemInfo() {
   const info = [
     { label: 'Version', value: 'Aether Mesh v2.4.1' },
-    { label: 'Build', value: '#2026.04.10-rc3' },
+    { label: 'Build', value: `#${new Date().getFullYear()}.${String(new Date().getMonth() + 1).padStart(2, '0')}.${String(new Date().getDate()).padStart(2, '0')}-rc3` },
     { label: 'Protocol', value: 'PBFT + Gossip v3' },
     { label: 'Runtime', value: 'Go 1.23 / gRPC' },
     { label: 'OS', value: 'Linux 6.8 (kernel)' },
@@ -188,6 +218,22 @@ export default function Settings() {
     revokeKey,
   } = useCluster();
 
+  const [toast, setToast] = useState(null);
+
+  const showToast = useCallback((msg, type = 'success') => {
+    setToast({ msg, type, id: Date.now() });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  const handleSave = useCallback(() => {
+    showToast('✓ Configuration saved successfully');
+  }, [showToast]);
+
+  const handleReset = useCallback(() => {
+    resetConfig();
+    showToast('Configuration reset to defaults', 'warning');
+  }, [resetConfig, showToast]);
+
   return (
     <section className="section-shell" style={{ paddingTop: '1.5rem' }}>
       <div className="shell">
@@ -199,7 +245,7 @@ export default function Settings() {
 
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-5">
           <div className="flex flex-col gap-5">
-            <ClusterConfiguration config={config} onConfigChange={updateConfig} onReset={resetConfig} />
+            <ClusterConfiguration config={config} onConfigChange={updateConfig} onReset={handleReset} onSave={handleSave} />
             <NotificationPreferences notifs={notificationPrefs} onToggle={toggleNotification} />
           </div>
           <div className="flex flex-col gap-5">
@@ -208,6 +254,8 @@ export default function Settings() {
           </div>
         </div>
       </div>
+
+      <SettingsToast toast={toast} />
     </section>
   );
 }

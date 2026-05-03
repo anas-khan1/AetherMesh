@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import Navbar from './components/layout/Navbar';
@@ -12,6 +13,15 @@ import FaultLogs from './pages/FaultLogs';
 import Security from './pages/Security';
 import IOTraffic from './pages/IOTraffic';
 import Settings from './pages/Settings';
+import NotFound from './pages/NotFound';
+
+function ScrollToTop() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, [pathname]);
+  return null;
+}
 
 function PageTransition({ children }) {
   return (
@@ -42,6 +52,7 @@ function AnimatedRoutes() {
         <Route path="/security" element={<PageTransition><Security /></PageTransition>} />
         <Route path="/io-traffic" element={<PageTransition><IOTraffic /></PageTransition>} />
         <Route path="/settings" element={<PageTransition><Settings /></PageTransition>} />
+        <Route path="*" element={<PageTransition><NotFound /></PageTransition>} />
       </Routes>
     </AnimatePresence>
   );
@@ -50,6 +61,7 @@ function AnimatedRoutes() {
 export default function App() {
   return (
     <Router>
+      <ScrollToTop />
       <div className="app-shell">
         <Navbar />
         <div className="app-main">
