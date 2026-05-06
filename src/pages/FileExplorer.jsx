@@ -373,26 +373,53 @@ export default function FileExplorer() {
                 <h3 className="panel-title">Upload Simulator</h3>
                 <Upload size={14} style={{ color: 'var(--color-cyan-neon)' }} />
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px_auto] gap-2">
-                <input
-                  value={uploadName}
-                  onChange={(e) => setUploadName(e.target.value)}
-                  className="settings-input"
-                  placeholder="filename.ext"
-                />
-                <input
-                  value={uploadSize}
-                  onChange={(e) => setUploadSize(Number(e.target.value) || 0)}
-                  className="settings-input"
-                  type="number"
-                  min={8}
-                  max={10240}
-                />
-                <button className="filter-btn active" onClick={() => uploadFile(uploadName, uploadSize)}>
-                  Upload
-                </button>
+              <div className="flex flex-col gap-3">
+                <label className="filter-btn active cursor-pointer flex items-center justify-center w-full" style={{ background: 'linear-gradient(135deg, rgba(17,232,246,0.1), rgba(17,232,246,0.05))', borderStyle: 'dashed' }}>
+                  <input 
+                    type="file" 
+                    className="hidden" 
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const name = file.name;
+                        const sizeMB = Math.max(1, Math.round(file.size / (1024 * 1024)));
+                        setUploadName(name);
+                        setUploadSize(sizeMB);
+                        uploadFile(name, sizeMB);
+                      }
+                      e.target.value = ''; // Reset so same file can be selected again
+                    }} 
+                  />
+                  <Upload size={14} style={{ marginRight: '8px' }} /> Select Local File to Upload
+                </label>
+                
+                <div className="flex items-center gap-2 text-[10px] font-mono text-center uppercase tracking-wider my-1" style={{ color: 'var(--color-text-muted)' }}>
+                  <span className="flex-1 border-t border-[rgba(17,232,246,0.1)]"></span>
+                  <span>OR MANUAL ENTRY</span>
+                  <span className="flex-1 border-t border-[rgba(17,232,246,0.1)]"></span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr_80px_auto] gap-2">
+                  <input
+                    value={uploadName}
+                    onChange={(e) => setUploadName(e.target.value)}
+                    className="settings-input"
+                    placeholder="filename.ext"
+                  />
+                  <input
+                    value={uploadSize}
+                    onChange={(e) => setUploadSize(Number(e.target.value) || 0)}
+                    className="settings-input"
+                    type="number"
+                    min={1}
+                    max={10240}
+                  />
+                  <button className="filter-btn" onClick={() => uploadFile(uploadName, uploadSize)}>
+                    Upload
+                  </button>
+                </div>
               </div>
-              <p className="text-[11px] mt-2" style={{ color: 'var(--color-text-subtle)' }}>
+              <p className="text-[11px] mt-3" style={{ color: 'var(--color-text-subtle)' }}>
                 Size is in MB. The system automatically splits file into shards, adds parity shards, and replicates across nodes.
               </p>
             </motion.div>

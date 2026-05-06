@@ -476,18 +476,15 @@ export function ClusterProvider({ children }) {
         ...prev,
       ].slice(0, 30));
 
-      // Transition to "checking" first
-      setNodes((prev) => prev.map((n) => n.id === failedId ? { ...n, status: 'checking' } : n));
+      // runFaultTolerance will automatically transition faulty nodes to "checking" and then "healthy"
+      runFaultTolerance();
 
-      // After 2 more seconds, fully recover
       setTimeout(() => {
-        runFaultTolerance();
-
         setDashboardActivity((prev) => [
           { type: 'recover', msg: `Auto-healed: ${failedId} restored`, time: 'just now', icon: 'check' },
           ...prev,
         ].slice(0, 10));
-      }, 2000);
+      }, 1200);
     }, 6000);
   }
 
